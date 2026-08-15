@@ -7,10 +7,29 @@ body {
 }
 
 main {
-  max-width: 40rem;
+  max-width: 60rem;
   margin: 0 auto;
 }
 
 a {
   color: #0b5fff;
+}
+
+#app {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+
+canvas[data-testid="game-canvas"] {
+  display: block;
+  width: 100%;
+  max-width: 48rem;
+  aspect-ratio: 4 / 3;
+  background: #111;
+}
+
+#app section {
+  flex: 1 1 12rem;
 }
