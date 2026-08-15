@@ -12,10 +12,16 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 // a grader's automation). So these tests assume the prototype exposes a
 // parallel, inspectable state on `[data-testid="game-state"]`
 // (data-running, data-elapsed-ms, data-player-x, data-applied-speed, ...) —
-// a DOM mirror of what's drawn, not a prescription for how it's drawn. Same
-// for the three difficulty dials: real `<input type="range">` elements, not
-// custom pointer-only widgets, because that's what makes "adjustable by tab
-// and arrow keys" free rather than something to reimplement.
+// a DOM mirror of what's drawn, not a prescription for how it's drawn (see
+// CLAUDE.md for the rule that keeps this mirror from drifting). Same for the
+// three difficulty dials: real `<input type="range">` elements, not custom
+// pointer-only widgets, because that's what makes "adjustable by tab and
+// arrow keys" free rather than something to reimplement.
+//
+// data-player-x/-player-y are fractions of the arena (0–1), not pixels — the
+// simulation runs in normalised coordinates per CLAUDE.md, so difficulty
+// doesn't silently change with viewport size.
+//
 // If this contract isn't the one you build to, these tests are the thing to
 // change, not the assumption to work around silently.
 
@@ -78,14 +84,25 @@ describe("core interaction is keyboard-only", () => {
 });
 
 describe("resizing mid-run", () => {
-  it("keeps the run going and the canvas correct", async () => {
+  it("keeps the run going, in normalised coordinates, and the canvas correct", async () => {
     await mountGame();
     tick();
     tick();
     tick();
 
     const elapsedBefore = Number(gameState().dataset.elapsedMs);
-    const canvasBefore = document.querySelector('[data-testid="game-canvas"]');
+    const playerXBefore = Number(gameState().dataset.playerX);
+    const playerYBefore = Number(gameState().dataset.playerY);
+    const canvasBefore = document.querySelector('[data-testid="game-canvas"]') as HTMLCanvasElement;
+
+    // Position is a fraction of the arena, not a pixel count — true at any
+    // canvas size, including before this test ever resizes anything.
+    expect(playerXBefore).toBeGreaterThanOrEqual(0);
+    expect(playerXBefore).toBeLessThanOrEqual(1);
+    expect(playerYBefore).toBeGreaterThanOrEqual(0);
+    expect(playerYBefore).toBeLessThanOrEqual(1);
+
+    const canvasWidthBefore = canvasBefore.width;
 
     window.innerWidth = 500;
     window.innerHeight = 900;
@@ -98,9 +115,17 @@ describe("resizing mid-run", () => {
     expect(gameState().dataset.running).toBe("true");
     expect(Number(gameState().dataset.elapsedMs)).toBeGreaterThanOrEqual(elapsedBefore);
 
-    const canvas = canvasBefore as HTMLCanvasElement;
-    expect(canvas.width).toBeGreaterThan(0);
-    expect(canvas.height).toBeGreaterThan(0);
+    // No key was pressed since the resize, so the dot didn't move. In
+    // normalised coordinates that means the fraction is untouched — if
+    // position were pixels tied to the old canvas size, it would either
+    // silently relocate within the arena or need a rescale step that's easy
+    // to get wrong. Either way this assertion catches it.
+    expect(Number(gameState().dataset.playerX)).toBeCloseTo(playerXBefore, 5);
+    expect(Number(gameState().dataset.playerY)).toBeCloseTo(playerYBefore, 5);
+
+    expect(canvasBefore.width).toBeGreaterThan(0);
+    expect(canvasBefore.height).toBeGreaterThan(0);
+    expect(canvasBefore.width, "canvas didn't actually resize with the window").not.toBe(canvasWidthBefore);
   });
 });
 

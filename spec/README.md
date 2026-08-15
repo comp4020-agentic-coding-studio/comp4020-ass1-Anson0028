@@ -35,3 +35,13 @@ survive a change of approach, or of stack.
 A green suite here is backpressure, not a mark: your tutor verifies the live
 site against the published spec at the crit, and keeping your own tests green is
 how you arrive with no surprises.
+
+## Viewports (real browser, outside `pnpm check`)
+
+"Does it look good at 390×844" only a person can judge. "Does anything overflow
+horizontally at that width" doesn't need a person — `pnpm check:viewports`
+(`scripts/check-viewports.ts`) loads the built site in real Chromium at both
+marking viewports (1920×1080, 390×844) and fails on horizontal overflow. It's
+outside `pnpm check` because a browser launch is slower than the rest of the
+roster; run it yourself after `pnpm build`, and once via
+`pnpm exec playwright install chromium` to have the browser available.
