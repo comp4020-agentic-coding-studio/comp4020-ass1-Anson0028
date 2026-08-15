@@ -33,3 +33,14 @@ canvas[data-testid="game-canvas"] {
 #app section {
   flex: 1 1 12rem;
 }
+
+.tabular {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud {
+  display: flex;
+  gap: 1.5rem;
+  font-size: 1.1rem;
+}
