@@ -1,17 +1,44 @@
 // Pure, DOM-free equalisation search — no canvas, no requestAnimationFrame,
-// no wall-clock reads. It's a generator so the caller controls pacing: one
-// `.next()` runs exactly one Monte Carlo measurement (a `medianSurvivalMs`
-// call), so main.ts can spend a fixed time budget per animation frame
-// draining it, instead of the whole search blocking one frame. See main.ts's
-// `driveEqualisation` for that chunking, and CLAUDE.md's "Three
-// configurations" section for why this scales one multiplier across a
-// panel's whole shape instead of independently retuning three knobs against
-// one target (underdetermined).
-import { ENEMY_PURSUIT_SPEED_RATING, fleeNearestPolicy, medianSurvivalMs, type DifficultyConfig } from "./sim";
+// no wall-clock reads. Every generator here yields once per *trial* (one
+// `runHeadless` call), not once per whole measurement — that granularity is
+// the difference between a per-frame time budget actually pacing the work
+// and merely decorating it (see main.ts's FRAME_BUDGET_MS comment for the
+// measurement that caught it decorating). main.ts drains these a little at a
+// time per animation frame; see its `tickEqualisation`. See CLAUDE.md's
+// "Three configurations" section for why equalisePanel scales one multiplier
+// across a panel's whole shape instead of independently retuning three knobs
+// against one target (underdetermined).
+import { ENEMY_PURSUIT_SPEED_RATING, fleeNearestPolicy, medianSurvivalMsSteps, type DifficultyConfig } from "./sim";
 
 export type AxisBounds = Record<keyof DifficultyConfig, { min: number; max: number }>;
 
 export type EqualiseStep = { config: DifficultyConfig; achievedMs: number };
+
+// What a caller sees while a search is in progress. "trial": one simulated
+// run just finished — a pacing pulse with no other information, since a
+// single trial's result isn't meaningful on its own (see medianSurvivalMs).
+// "step": a full trials-sized measurement just completed (one bisection
+// probe) — this is what a progress UI reports "last try Xs" from.
+export type EqualiseProgress = { kind: "trial" } | ({ kind: "step" } & EqualiseStep);
+
+// Runs one Monte Carlo measurement trial-by-trial, yielding a pacing pulse
+// after each one instead of blocking for the whole batch. Shared by
+// equalisePanel (its bisection probes) and equaliseAllPanels (the reference
+// target and the post-search verify) so there's exactly one place that turns
+// "a batch of trials" into "something a frame budget can chunk".
+function* measureSteps(
+  config: Readonly<DifficultyConfig>,
+  trials: number,
+  rng: () => number,
+): Generator<EqualiseProgress, number, void> {
+  const gen = medianSurvivalMsSteps(config, trials, fleeNearestPolicy, rng);
+  let result = gen.next();
+  while (!result.done) {
+    yield { kind: "trial" };
+    result = gen.next();
+  }
+  return result.value;
+}
 
 export type EqualiseOutcome =
   | { status: "matched"; config: DifficultyConfig; achievedMs: number; targetMs: number }
@@ -100,12 +127,12 @@ export function* equalisePanel(
   rng: () => number,
   trials: number,
   maxIterations: number,
-): Generator<EqualiseStep, EqualiseOutcome, void> {
+): Generator<EqualiseProgress, EqualiseOutcome, void> {
   const kMax = Math.max(1, ...AXES.filter((a) => base[a] > 0).map((a) => bounds[a].max / base[a]));
 
   const loConfig = scaledConfig(base, bounds, 0);
-  const loMs = medianSurvivalMs(loConfig, trials, fleeNearestPolicy, rng);
-  yield { config: loConfig, achievedMs: loMs };
+  const loMs = yield* measureSteps(loConfig, trials, rng);
+  yield { kind: "step", config: loConfig, achievedMs: loMs };
   if (targetMs > loMs + toleranceMs) {
     // Even at every axis's easiest slider position, this shape can't survive
     // as long as the target — it's already at its floor.
@@ -113,8 +140,8 @@ export function* equalisePanel(
   }
 
   const hiConfig = scaledConfig(base, bounds, kMax);
-  const hiMs = medianSurvivalMs(hiConfig, trials, fleeNearestPolicy, rng);
-  yield { config: hiConfig, achievedMs: hiMs };
+  const hiMs = yield* measureSteps(hiConfig, trials, rng);
+  yield { kind: "step", config: hiConfig, achievedMs: hiMs };
   if (targetMs < hiMs - toleranceMs) {
     // Even at every axis's hardest slider position, this shape is still
     // easier than the target — it's already at its ceiling.
@@ -127,8 +154,8 @@ export function* equalisePanel(
   for (let i = 0; i < maxIterations; i++) {
     const mid = (lo + hi) / 2;
     const config = scaledConfig(base, bounds, mid);
-    const achievedMs = medianSurvivalMs(config, trials, fleeNearestPolicy, rng);
-    yield { config, achievedMs };
+    const achievedMs = yield* measureSteps(config, trials, rng);
+    yield { kind: "step", config, achievedMs };
     best = { config, achievedMs };
     if (Math.abs(achievedMs - targetMs) <= toleranceMs) {
       return { status: "matched", config, achievedMs, targetMs };
@@ -140,4 +167,50 @@ export function* equalisePanel(
     }
   }
   return { status: "unreachable", reason: "budget", config: best.config, achievedMs: best.achievedMs, targetMs };
+}
+
+// The full button-press flow: measure the active panel's own reference time,
+// then search+verify every other panel against it. One generator for the
+// whole thing (rather than main.ts stitching several generators together)
+// so there's a single place that knows the sequence — target, then each
+// panel's search, then that panel's FINAL_TRIALS re-verify — and main.ts
+// only has to drain it and react to what it yields.
+export type MultiPanelProgress =
+  | EqualiseProgress
+  | { kind: "target"; achievedMs: number }
+  | { kind: "panel-start"; panel: number }
+  | { kind: "panel-done"; panel: number; outcome: EqualiseOutcome };
+
+export function* equaliseAllPanels(
+  activeConfig: Readonly<DifficultyConfig>,
+  getPanelConfig: (panel: number) => Readonly<DifficultyConfig>,
+  otherPanels: readonly number[],
+  bounds: AxisBounds,
+  rng: () => number,
+): Generator<MultiPanelProgress, Map<number, EqualiseOutcome>, void> {
+  const targetMs = yield* measureSteps(activeConfig, FINAL_TRIALS, rng);
+  yield { kind: "target", achievedMs: targetMs };
+  const toleranceMs = targetMs * TOLERANCE_FRACTION;
+
+  const outcomes = new Map<number, EqualiseOutcome>();
+  for (const panel of otherPanels) {
+    yield { kind: "panel-start", panel };
+    const outcome = yield* equalisePanel(
+      getPanelConfig(panel),
+      bounds,
+      targetMs,
+      toleranceMs,
+      rng,
+      SEARCH_TRIALS,
+      SEARCH_ITERATIONS,
+    );
+    // Re-verify at full trial count so every reported/compared number shares
+    // the same precision as the reference target — the search itself runs
+    // at the cheaper SEARCH_TRIALS.
+    const verifiedMs = yield* measureSteps(outcome.config, FINAL_TRIALS, rng);
+    const verified: EqualiseOutcome = { ...outcome, achievedMs: verifiedMs };
+    yield { kind: "panel-done", panel, outcome: verified };
+    outcomes.set(panel, verified);
+  }
+  return outcomes;
 }

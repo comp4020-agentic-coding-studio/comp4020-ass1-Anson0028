@@ -13,7 +13,7 @@ import {
   FINAL_TRIALS,
   SEARCH_TRIALS,
   SEARCH_ITERATIONS,
-  type EqualiseStep,
+  type EqualiseProgress,
   type EqualiseOutcome,
 } from "./equalise";
 
@@ -44,7 +44,7 @@ const SWARM: DifficultyConfig = { enemyHealth: 20, enemySpeed: 70, enemyDamage: 
 const TANKS: DifficultyConfig = { enemyHealth: 90, enemySpeed: 10, enemyDamage: 30 };
 const BALANCED: DifficultyConfig = { enemyHealth: 40, enemySpeed: 15, enemyDamage: 15 };
 
-function drain(gen: Generator<EqualiseStep, EqualiseOutcome, void>): EqualiseOutcome {
+function drain(gen: Generator<EqualiseProgress, EqualiseOutcome, void>): EqualiseOutcome {
   let result = gen.next();
   while (!result.done) result = gen.next();
   return result.value;

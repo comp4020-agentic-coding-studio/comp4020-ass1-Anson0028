@@ -195,13 +195,37 @@ export function runHeadless(
   return state.elapsedMs;
 }
 
+function medianOf(results: number[]): number {
+  const sorted = [...results].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+// Same measurement as medianSurvivalMs, but yields once per trial instead of
+// running the whole batch synchronously — the difference between "the page
+// freezes for the whole measurement" and "a caller can pace this across
+// animation frames". See equalise.ts's measureSteps, which is what actually
+// drives this per trial, and main.ts's FRAME_BUDGET_MS comment for why this
+// granularity, not the whole-batch one, is what a "must not freeze" UI needs.
+export function* medianSurvivalMsSteps(
+  config: Readonly<DifficultyConfig>,
+  trials: number,
+  policy: Policy = fleeNearestPolicy,
+  rng: () => number = Math.random,
+): Generator<void, number, void> {
+  const results: number[] = [];
+  for (let i = 0; i < trials; i++) {
+    results.push(runHeadless(config, policy, rng));
+    yield;
+  }
+  return medianOf(results);
+}
+
 export function medianSurvivalMs(
   config: Readonly<DifficultyConfig>,
   trials = 51,
   policy: Policy = fleeNearestPolicy,
   rng: () => number = Math.random,
 ): number {
-  const results = Array.from({ length: trials }, () => runHeadless(config, policy, rng)).sort((a, b) => a - b);
-  const mid = Math.floor(results.length / 2);
-  return results.length % 2 === 0 ? (results[mid - 1] + results[mid]) / 2 : results[mid];
+  return medianOf(Array.from({ length: trials }, () => runHeadless(config, policy, rng)));
 }

@@ -3,24 +3,12 @@
 // ./equalise (also pure, DOM-free) — this file is deliberately just DOM
 // setup, canvas rendering, a requestAnimationFrame loop, and the chunked
 // driver that runs the equalise search a little at a time per frame.
+import { createInitialState, step, ENEMY_PURSUIT_SPEED_RATING, type DifficultyConfig, type Input } from "./sim";
 import {
-  createInitialState,
-  step,
-  ENEMY_PURSUIT_SPEED_RATING,
-  medianSurvivalMs,
-  fleeNearestPolicy,
-  type DifficultyConfig,
-  type Input,
-} from "./sim";
-import {
-  equalisePanel,
+  equaliseAllPanels,
   isCorneringRegime,
-  TOLERANCE_FRACTION,
-  FINAL_TRIALS,
-  SEARCH_TRIALS,
-  SEARCH_ITERATIONS,
   type AxisBounds,
-  type EqualiseStep,
+  type MultiPanelProgress,
   type EqualiseOutcome,
 } from "./equalise";
 
@@ -60,26 +48,47 @@ const PANEL_LABELS = ["Swarm", "Tanks", "Hunter"] as const;
 // comments for how each number was derived from this sim's own measured
 // sampling noise, not guessed.
 
-// Real Monte Carlo work is real CPU work: measured in an actual browser
-// against the built site (Playwright, both panels retuned from the default
-// Swarm-active state) at ~5.9s wall-clock end to end — a from-first-principles
-// estimate before that measurement said ~1.5-1.8s, wrong by more than 3x,
-// which is exactly why this is a measured number, not a computed one.
+// This budget used to be decorative, and a comment right here used to claim
+// otherwise. Through slice 5, job.gen.next() advanced a WHOLE
+// medianSurvivalMs(trials=SEARCH_TRIALS) measurement per call — one
+// uninterruptible unit that measured ~240ms, ~30x this budget — so
+// tickEqualisation's `while (performance.now() < deadline)` loop could never
+// fit a second one into a frame no matter what this constant said. Measured
+// consequence at the time: ~4.2fps during a press (25 rAF frames over
+// 5944ms) against ~60fps at rest — 4 canvas updates a second is a freeze, not
+// a dip, and "must not freeze the page" was a stated requirement this failed.
 //
-// That measurement also showed FRAME_BUDGET_MS isn't pacing what its name
-// implies. One job.gen.next() call is one full, uninterruptible
-// medianSurvivalMs(trials=SEARCH_TRIALS) measurement, and that alone averaged
-// ~240ms in the same run (25 gen.next() calls total across both panels over
-// 5944ms wall-clock) — ~30x this budget. So tickEqualisation's
-// `while (performance.now() < deadline)` loop never gets a second step into
-// one frame: the first step already blows the deadline. What actually
-// happens is "one step per animation frame, however long that step takes",
-// not "spend up to 8ms of steps per frame".
+// Fix: equalise.ts's generators (medianSurvivalMsSteps, measureSteps) now
+// yield once per individual simulated trial (one runHeadless call) instead of
+// once per whole batch, and equaliseAllPanels chunks ALL three of the flow's
+// measurements this way — the search's own bisection probes, but also the
+// reference-target measurement and the post-search FINAL_TRIALS re-verify,
+// which were two more synchronous, unchunked medianSurvivalMs calls the old
+// comment didn't mention because it only chased the one instance named at
+// the time. "Must not freeze" is unconditional, so all three needed it.
 //
-// Measured consequence: ~4.2fps during a press (25 rAF frames over 5944ms),
-// against ~60fps at rest — the loop keeps ticking throughout (elapsedMs
-// keeps advancing, confirmed) rather than freezing, but a visitor watching
-// it sees roughly 4 canvas updates a second, not a small dip.
+// Measured again, same method, same machine, after that change (Playwright,
+// both panels retuned from the default Swarm-active state): 5840ms
+// wall-clock — essentially unchanged from the old 5944ms, not the ~2x
+// slower this was expected to land at from per-trial overhead — at 34.6fps
+// during the press (202 rAF frames), against 120fps measured at rest in this
+// same environment. Instrumented gen.next() calls directly (595 total calls
+// across 193 job-active frames, avg 3.08/frame, 62 frames ran more than one,
+// max 68 in one frame) to confirm the budget is actually doing the gating
+// this constant's name claims — some frames run one trial, some run dozens,
+// which is the mechanism, not an inference from the fps number alone. Total
+// simulated work is unchanged (~600 trials either way); what changed is that
+// it's now spent in pieces small enough for this budget to slice, instead of
+// in one piece too big for any budget to matter.
+//
+// Considered and rejected: moving the search onto a Web Worker.
+// sim.ts/equalise.ts are already pure and DOM-free, so it would drop in
+// almost for free, and it would give both 60fps AND the original ~6s (no
+// main-thread chunking overhead at all, since none would be needed). Turned
+// down not because it wouldn't work, but because Vite's worker bundling is a
+// new failure surface in CI, and the remaining time before the deadline is
+// going to a visual pass and the process write-up rather than a second
+// bundling pipeline. Worth revisiting if a future week needs the fps back.
 const FRAME_BUDGET_MS = 8;
 
 function formatTime(ms: number): string {
@@ -320,14 +329,12 @@ if (app) {
   // --- Equalisation: chunked across frames, see FRAME_BUDGET_MS above. ---
 
   type EqualiseJob = {
-    targetMs: number;
-    toleranceMs: number;
-    queue: number[];
-    gen: Generator<EqualiseStep, EqualiseOutcome, void> | null;
-    panel: number | null;
-    outcomes: Map<number, EqualiseOutcome>;
+    gen: Generator<MultiPanelProgress, Map<number, EqualiseOutcome>, void>;
+    targetMs: number | null; // unknown until the "target" progress event arrives
+    currentPanel: number | null; // unknown until the first "panel-start" event
+    panelsStarted: number; // for "(N of total)" — incremented on "panel-start"
+    trialsThisPhase: number; // resets on "target"/"panel-start"/"step", for the visible trial counter
     total: number;
-    stepCount: number;
   };
   let equaliseJob: EqualiseJob | null = null;
 
@@ -364,13 +371,21 @@ if (app) {
 
   equaliseBtn.addEventListener("click", () => {
     if (equaliseJob) return;
-    const targetMs = medianSurvivalMs(configs[activeIndex], FINAL_TRIALS, fleeNearestPolicy, Math.random);
-    const toleranceMs = targetMs * TOLERANCE_FRACTION;
-    const queue = [0, 1, 2].filter((i) => i !== activeIndex);
-    equaliseJob = { targetMs, toleranceMs, queue, gen: null, panel: null, outcomes: new Map(), total: queue.length, stepCount: 0 };
+    const otherPanels = [0, 1, 2].filter((i) => i !== activeIndex);
+    equaliseJob = {
+      gen: equaliseAllPanels(configs[activeIndex], (i) => configs[i], otherPanels, BOUNDS, Math.random),
+      targetMs: null,
+      currentPanel: null,
+      panelsStarted: 0,
+      trialsThisPhase: 0,
+      total: otherPanels.length,
+    };
     equaliseBtn.disabled = true;
-    equaliseStatus.textContent = `Equalising to ${PANEL_LABELS[activeIndex]}'s ${formatTime(targetMs)}…`;
-    for (const i of queue) panelStatusEls[i].textContent = "waiting…";
+    // The target isn't known yet — it's itself a chunked measurement now (see
+    // FRAME_BUDGET_MS above), so this can't say a number until the first
+    // "target" progress event arrives.
+    equaliseStatus.textContent = `Measuring ${PANEL_LABELS[activeIndex]}'s reference difficulty…`;
+    for (const i of otherPanels) panelStatusEls[i].textContent = "waiting…";
   });
 
   function tickEqualisation(): void {
@@ -378,52 +393,62 @@ if (app) {
     const job = equaliseJob;
     const deadline = performance.now() + FRAME_BUDGET_MS;
     while (performance.now() < deadline) {
-      if (!job.gen) {
-        const next = job.queue.shift();
-        if (next === undefined) {
-          equaliseJob = null;
-          equaliseBtn.disabled = false;
-          const total = job.outcomes.size;
-          const matched = [...job.outcomes.values()].filter((o) => o.status === "matched").length;
-          // Honest either way: don't say "Done" as if every panel succeeded
-          // when one didn't — the per-panel status below says why.
-          equaliseStatus.textContent =
-            matched === total
-              ? `Done — matched ${PANEL_LABELS[activeIndex]}'s ${formatTime(job.targetMs)}.`
-              : `Done — ${matched} of ${total} matched ${PANEL_LABELS[activeIndex]}'s ${formatTime(job.targetMs)}; see below for the rest.`;
-          return;
-        }
-        job.panel = next;
-        job.stepCount = 0;
-        panelStatusEls[next].textContent = "equalising… (step 1)";
-        job.gen = equalisePanel(configs[next], BOUNDS, job.targetMs, job.toleranceMs, Math.random, SEARCH_TRIALS, SEARCH_ITERATIONS);
-      }
       const result = job.gen.next();
-      if (!result.done) {
-        // Six seconds of a static "working…" label reads as a hang even
-        // though the game keeps animating behind it — this has to visibly
-        // change every step, not just at the end.
-        job.stepCount++;
-        const panelPosition = job.outcomes.size + 1;
-        panelStatusEls[job.panel!].textContent = `equalising… (step ${job.stepCount})`;
-        equaliseStatus.textContent =
-          `Equalising ${PANEL_LABELS[job.panel!]} (${panelPosition} of ${job.total}) to ` +
-          `${PANEL_LABELS[activeIndex]}'s ${formatTime(job.targetMs)} — step ${job.stepCount}, ` +
-          `last try ${formatTime(result.value.achievedMs)}…`;
-      }
       if (result.done) {
-        const outcome = result.value;
-        // Re-verify at full trial count so every reported/compared number
-        // shares the same precision as the reference target.
-        const verifiedMs = medianSurvivalMs(outcome.config, FINAL_TRIALS, fleeNearestPolicy, Math.random);
-        const verified: EqualiseOutcome =
-          outcome.status === "matched"
-            ? { ...outcome, achievedMs: verifiedMs }
-            : { ...outcome, achievedMs: verifiedMs };
-        finishPanel(job.panel!, verified);
-        job.outcomes.set(job.panel!, verified);
-        job.gen = null;
-        job.panel = null;
+        const outcomes = result.value;
+        equaliseJob = null;
+        equaliseBtn.disabled = false;
+        const total = outcomes.size;
+        const matched = [...outcomes.values()].filter((o) => o.status === "matched").length;
+        const targetMs = job.targetMs ?? 0;
+        // Honest either way: don't say "Done" as if every panel succeeded
+        // when one didn't — the per-panel status (written live, below) says why.
+        equaliseStatus.textContent =
+          matched === total
+            ? `Done — matched ${PANEL_LABELS[activeIndex]}'s ${formatTime(targetMs)}.`
+            : `Done — ${matched} of ${total} matched ${PANEL_LABELS[activeIndex]}'s ${formatTime(targetMs)}; see below for the rest.`;
+        return;
+      }
+
+      const progress = result.value;
+      switch (progress.kind) {
+        case "trial":
+          // One simulated run just finished — a pacing pulse, not a result.
+          // Still has to visibly change the label every trial, or a slow
+          // phase (measuring the target, or a search step) reads as a hang
+          // even though it's clearly ticking underneath.
+          job.trialsThisPhase++;
+          if (job.currentPanel === null) {
+            equaliseStatus.textContent =
+              `Measuring ${PANEL_LABELS[activeIndex]}'s reference difficulty… (${job.trialsThisPhase} trials)`;
+          } else {
+            panelStatusEls[job.currentPanel].textContent = `equalising… (${job.trialsThisPhase} trials this step)`;
+          }
+          break;
+        case "target":
+          job.targetMs = progress.achievedMs;
+          job.trialsThisPhase = 0;
+          equaliseStatus.textContent = `Equalising to ${PANEL_LABELS[activeIndex]}'s ${formatTime(progress.achievedMs)}…`;
+          break;
+        case "panel-start":
+          job.currentPanel = progress.panel;
+          job.panelsStarted++;
+          job.trialsThisPhase = 0;
+          panelStatusEls[progress.panel].textContent = "equalising…";
+          break;
+        case "step":
+          job.trialsThisPhase = 0;
+          panelStatusEls[job.currentPanel!].textContent = `equalising… last try ${formatTime(progress.achievedMs)}`;
+          equaliseStatus.textContent =
+            `Equalising ${PANEL_LABELS[job.currentPanel!]} (${job.panelsStarted} of ${job.total}) to ` +
+            `${PANEL_LABELS[activeIndex]}'s ${formatTime(job.targetMs ?? 0)} — last try ${formatTime(progress.achievedMs)}…`;
+          break;
+        case "panel-done":
+          // Includes the FINAL_TRIALS re-verify (see equaliseAllPanels) — the
+          // number this reports already shares the reference target's
+          // precision, not the cheaper SEARCH_TRIALS estimate the search used.
+          finishPanel(progress.panel, progress.outcome);
+          break;
       }
     }
   }
