@@ -161,6 +161,74 @@ it down here. Growing this file is the work of harness engineering, and the gap
 between this boilerplate and your own version is part of what your prototype
 says about the developer you're becoming.
 
+## Design decisions for this prototype (the difficulty-sliders piece)
+
+These were made deliberately, before any code, and the tests in
+`spec/assignment-1.test.ts` assume them. Don't relitigate them mid-build —
+flag it and ask if one turns out to be wrong, don't quietly work around it.
+
+### The game-state mirror must not drift from the truth
+
+`spec/assignment-1.test.ts` can't see the canvas, so the prototype publishes a
+parallel state onto `[data-testid="game-state"]` (`data-running`,
+`data-elapsed-ms`, `data-player-x/-y`, `data-applied-health/-speed/-damage`).
+A test that reads a mirror which has quietly diverged from what's actually
+simulated is worse than no test — it stays green while the game is broken.
+So: the mirror is written from the exact same state object the renderer
+reads, in one place, once per frame (e.g. a single `publishState()` call at
+the end of the game loop's tick). Never update DOM dataset attributes
+piecemeal wherever state changes — that's exactly how a second, competing copy
+of "the truth" gets created.
+
+### The simulation runs in normalised coordinates
+
+The arena is 1×1. Every position, velocity and distance the simulation
+computes is a fraction of it. Pixels exist only in the render step, where you
+multiply by the current canvas size. Reasons this matters more than it looks:
+
+- the phone viewport's arena is physically smaller, so the same enemy speed
+  is effectively harder there — normalising is what makes the piece's central
+  claim (three configurations are equally hard) true at both marking
+  viewports instead of only the one it was tuned on
+- it's also what makes a mid-run resize safe by construction: a resize is
+  just a change of multiplier, not a change to any simulated quantity
+
+`data-player-x` / `data-player-y` on the mirror are these fractions (0–1),
+not pixels.
+
+### Input: keyboard on desktop, relative touch-drag on phone
+
+Arrow keys move the player — unconditionally, an accessibility requirement,
+not something to trade off for the touch implementation.
+
+The phone has no arrow keys, so touch drags the player: the first touch point
+becomes the origin, dragging moves the player in that direction proportional
+to drag distance, releasing stops. Not absolute positioning — that would put
+the visitor's finger over the thing they're supposed to be watching.
+
+### Visual direction: a designer's tuning tool, not a game portal
+
+The visitor is sitting where the designer sits, not playing a game. That's
+the argument, in visual form:
+
+- dark surface; canvas reads better dark and sells the tool framing
+- one accent colour, spent only on the "make these equally hard" button and
+  the readout it changes — everywhere else is greyscale, or the accent means
+  nothing
+- all numbers monospace, `font-variant-numeric: tabular-nums` — the survival
+  timer must not jitter as digit widths change
+- each slider shows its current value as a number beside it; the three
+  sliders get three distinguishable colours, reused everywhere the three are
+  compared, so the mapping is learned once
+- no easing on the slider-to-game response — the point is that it's immediate
+- the equalise button is the most prominent control on the page: it's the
+  thesis, not a feature
+- layout: canvas left / panel right on desktop, stacked with canvas on top
+  and full-width sliders below on phone; the canvas resizes with the
+  viewport without losing the run
+- restraint: no gradients-on-everything, no decorative flourishes, no icons
+  that carry no information
+
 ## What this repo has taught me
 
 ### pnpm brings its own Node; `mise.toml` alone does not bind it
