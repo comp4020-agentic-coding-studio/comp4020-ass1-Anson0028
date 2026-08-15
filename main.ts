@@ -102,31 +102,44 @@ if (app) {
     return { x, y };
   }
 
+  // The pixel buffer is sized in device pixels (rect * devicePixelRatio) so
+  // the canvas doesn't render blurry on a high-DPI screen — the exact phone
+  // viewport this ships to is emulated at deviceScaleFactor 3. render() below
+  // keeps drawing in CSS-pixel coordinates (cssWidth/cssHeight, not
+  // canvas.width/height); the transform set here maps those to the buffer.
+  // sim.ts stays untouched — DPR is a rendering concern, not a simulated one.
+  let cssWidth = 0;
+  let cssHeight = 0;
+
   function resizeCanvas(): void {
     const rect = canvas.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) {
-      canvas.width = rect.width;
-      canvas.height = rect.height;
+      const dpr = window.devicePixelRatio || 1;
+      cssWidth = rect.width;
+      cssHeight = rect.height;
+      canvas.width = Math.round(rect.width * dpr);
+      canvas.height = Math.round(rect.height * dpr);
+      ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
   }
   window.addEventListener("resize", resizeCanvas);
   resizeCanvas();
 
   function render(): void {
-    if (!ctx || canvas.width === 0 || canvas.height === 0) return;
-    const side = Math.min(canvas.width, canvas.height);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!ctx || cssWidth === 0 || cssHeight === 0) return;
+    const side = Math.min(cssWidth, cssHeight);
+    ctx.clearRect(0, 0, cssWidth, cssHeight);
 
     ctx.fillStyle = "#888";
     for (const enemy of state.enemies) {
       ctx.beginPath();
-      ctx.arc(enemy.x * canvas.width, enemy.y * canvas.height, ENEMY_RADIUS * side, 0, Math.PI * 2);
+      ctx.arc(enemy.x * cssWidth, enemy.y * cssHeight, ENEMY_RADIUS * side, 0, Math.PI * 2);
       ctx.fill();
     }
 
     ctx.fillStyle = "#e8e8e8";
     ctx.beginPath();
-    ctx.arc(state.player.x * canvas.width, state.player.y * canvas.height, PLAYER_RADIUS * side, 0, Math.PI * 2);
+    ctx.arc(state.player.x * cssWidth, state.player.y * cssHeight, PLAYER_RADIUS * side, 0, Math.PI * 2);
     ctx.fill();
   }
 

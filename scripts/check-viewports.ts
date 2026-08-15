@@ -26,9 +26,14 @@ import { preview } from "vite";
 
 const DIST = resolve("dist");
 
+// deviceScaleFactor matters here specifically: Playwright defaults to 1, which
+// makes `expected = box * devicePixelRatio` always multiply by 1 and never
+// actually exercise the devicePixelRatio term. 390×844 is marked under
+// Chrome's device emulation at deviceScaleFactor 3 — that's the real number to
+// check against, not the default.
 const VIEWPORTS = [
-  { name: "desktop", width: 1920, height: 1080 },
-  { name: "phone", width: 390, height: 844 },
+  { name: "desktop", width: 1920, height: 1080, deviceScaleFactor: 1 },
+  { name: "phone", width: 390, height: 844, deviceScaleFactor: 3 },
 ];
 
 function htmlFiles(dir: string = DIST): string[] {
@@ -66,7 +71,10 @@ async function main(): Promise<void> {
       const url = new URL(name, baseUrl).href;
       for (const viewport of VIEWPORTS) {
         const label = `${name} @ ${viewport.name} (${viewport.width}×${viewport.height})`;
-        const page = await browser.newPage({ viewport });
+        const page = await browser.newPage({
+          viewport: { width: viewport.width, height: viewport.height },
+          deviceScaleFactor: viewport.deviceScaleFactor,
+        });
 
         // Both kinds of error sat right in the console the whole time this
         // script was silently measuring a blank page — nothing was listening.
