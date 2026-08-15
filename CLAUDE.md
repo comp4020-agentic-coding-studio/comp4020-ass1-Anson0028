@@ -160,3 +160,27 @@ catching you out, a fact about the stack the agent keeps getting wrong --- write
 it down here. Growing this file is the work of harness engineering, and the gap
 between this boilerplate and your own version is part of what your prototype
 says about the developer you're becoming.
+
+## What this repo has taught me
+
+### pnpm brings its own Node; `mise.toml` alone does not bind it
+
+`mise` installs pnpm as a standalone binary with Node embedded, so `pnpm exec`
+runs under that embedded Node no matter what `mise.toml` declares. Anything
+spawned via `process.execPath` --- `scripts/check-evidence.ts` is the one that
+bit me --- then gets the wrong Node, and a Node older than 22 cannot load a
+`.ts` file at all. The failure looks like a broken test and is really a broken
+toolchain.
+
+`.npmrc` pins it (`use-node-version`), and that file is the authority for which
+Node pnpm runs. If a check fails with `ERR_UNKNOWN_FILE_EXTENSION`, check
+`pnpm exec node -v` against `mise current node` before touching the code.
+
+### PROCESS.md and reflections use my facts, not a plausible reconstruction
+
+When I give you the facts of a moment you weren't present for --- what I
+tried, what I rejected, why --- use those facts as given. If a beat is
+missing, ask me for it or leave it out. Don't fill the gap with something
+plausible: I have to defend every claim in `PROCESS.md` and the reflection out
+loud, and I can only answer for the alternatives I actually weighed, not ones
+that merely sound like something I might have weighed.
