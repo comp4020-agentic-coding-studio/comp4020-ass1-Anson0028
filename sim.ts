@@ -44,6 +44,19 @@ export type SimState = {
 };
 
 export const PLAYER_SPEED = 0.6; // arena-fractions per second
+
+// enemySpeed is a 0-100 rating; PLAYER_SPEED is a fixed fraction/second, so
+// this is the rating at which an enemy's raw speed equals the player's — not
+// an independently-chosen number, derived from PLAYER_SPEED so the two can
+// never drift apart. Below it, an enemy can never close distance on a player
+// that's actively fleeing it (fleeNearestPolicy flees directly away once
+// triggered): the enemy is simply slower. A run at that rating only ends by
+// accumulation and cornering as more enemies spawn over the run's length, a
+// qualitatively different, high-variance process from the "gets caught"
+// pursuit regime above this line. See equalise.ts's isCorneringRegime, which
+// reads this to explain (not just report) why a slow archetype can fail to
+// converge under the equalise search.
+export const ENEMY_PURSUIT_SPEED_RATING = PLAYER_SPEED * 100;
 export const PLAYER_MAX_HEALTH = 100;
 export const PLAYER_ATTACK_RANGE = 0.12; // arena-fractions
 export const PLAYER_ATTACK_DAMAGE = 20;

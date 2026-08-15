@@ -36,9 +36,13 @@ function gameState(): HTMLElement {
   return el;
 }
 
-function slider(name: "health" | "speed" | "damage"): HTMLInputElement {
-  const el = document.querySelector<HTMLInputElement>(`[data-testid="enemy-${name}"]`);
-  if (!el) throw new Error(`[data-testid="enemy-${name}"] not found`);
+// Three panels each have their own health/speed/damage slider, namespaced
+// `enemy-${name}-${panel}` — panel 0 is active by default (see CLAUDE.md's
+// "Three configurations" section), so panel 0 is what any test not
+// specifically about panel-switching should read or drive.
+function slider(name: "health" | "speed" | "damage", panel = 0): HTMLInputElement {
+  const el = document.querySelector<HTMLInputElement>(`[data-testid="enemy-${name}-${panel}"]`);
+  if (!el) throw new Error(`[data-testid="enemy-${name}-${panel}"] not found`);
   return el;
 }
 
@@ -74,8 +78,13 @@ describe("core interaction is keyboard-only", () => {
 
   it("every difficulty slider is a native, enabled, tabbable control", async () => {
     await mountGame();
-    for (const name of ["health", "speed", "damage"] as const) {
-      const input = slider(name);
+    // Three panels x three stats = nine sliders. Queried generically by
+    // input[type=range] rather than by exact id, so this test (and
+    // check-viewports.ts's liveness check) covers however many panels exist
+    // without hardcoding their ids in two places.
+    const inputs = document.querySelectorAll<HTMLInputElement>('input[type="range"]');
+    expect(inputs.length).toBe(9);
+    for (const input of inputs) {
       expect(input.type).toBe("range");
       expect(input.disabled).toBe(false);
       expect(input.tabIndex).not.toBe(-1);
@@ -167,5 +176,58 @@ describe("a slider change applies within the same run", () => {
 
     expect(gameState().dataset.appliedSpeed).not.toBe(before);
     expect(gameState().dataset.appliedSpeed).toBe("90");
+  });
+});
+
+describe("three configurations, only one live at a time", () => {
+  it("mirrors which panel is active, and switching starts a fresh run", async () => {
+    await mountGame();
+    tick();
+    tick();
+
+    expect(gameState().dataset.activeConfig).toBe("0");
+    const elapsedBeforeSwitch = Number(gameState().dataset.elapsedMs);
+    expect(elapsedBeforeSwitch).toBeGreaterThan(0);
+
+    const panel1 = document.querySelector<HTMLInputElement>('[data-testid="panel-select-1"]');
+    if (!panel1) throw new Error('[data-testid="panel-select-1"] not found');
+    panel1.checked = true;
+    panel1.dispatchEvent(new Event("change", { bubbles: true }));
+    tick();
+
+    expect(gameState().dataset.activeConfig).toBe("1");
+    // A fresh run, not the old one still ticking under a swapped config —
+    // comparing how a configuration feels is only honest from the same
+    // starting point every time (see CLAUDE.md).
+    expect(Number(gameState().dataset.elapsedMs)).toBeLessThan(elapsedBeforeSwitch);
+  });
+
+  it("states the reference-player limitation in plain language on the page", async () => {
+    await mountGame();
+    const el = document.querySelector<HTMLElement>('[data-testid="equalise-limitation"]');
+    if (!el) throw new Error('[data-testid="equalise-limitation"] not found');
+    const text = el.textContent ?? "";
+    expect(text.length).toBeGreaterThan(0);
+    // Not just present — it has to actually say what the honest half of the
+    // argument is, not a vague disclaimer.
+    expect(text.toLowerCase()).toContain("reference player");
+    expect(text.toLowerCase()).toContain("human");
+  });
+
+  it("shows a running status the moment equalising starts, not just at the end", async () => {
+    await mountGame();
+    tick();
+
+    const button = document.querySelector<HTMLButtonElement>('[data-testid="equalise-button"]');
+    const status = document.querySelector<HTMLElement>('[data-testid="equalise-status"]');
+    if (!button || !status) throw new Error("equalise button or status element not found");
+
+    expect(button.disabled).toBe(false);
+    button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    // Before a single frame has ticked the search forward at all — this is
+    // the state a real visitor sees the instant they click.
+    expect(button.disabled).toBe(true);
+    expect(status.textContent?.length).toBeGreaterThan(0);
   });
 });

@@ -102,9 +102,11 @@ async function main(): Promise<void> {
             await page.waitForFunction(
               () => {
                 const canvas = document.querySelector('[data-testid="game-canvas"]');
-                const slidersPresent = ["enemy-health", "enemy-speed", "enemy-damage"].every(
-                  (id) => document.querySelector(`[data-testid="${id}"]`) !== null,
-                );
+                // Nine sliders (three panels x health/speed/damage), queried
+                // generically rather than by nine hardcoded ids — this is
+                // the one place in the repo that used to hardcode slider ids
+                // (see CLAUDE.md's "Three configurations" section).
+                const slidersPresent = document.querySelectorAll('input[type="range"]').length === 9;
                 const state = document.querySelector('[data-testid="game-state"]');
                 return !!canvas && slidersPresent && state instanceof HTMLElement && !!state.dataset.running;
               },
