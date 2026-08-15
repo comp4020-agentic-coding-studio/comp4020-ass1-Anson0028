@@ -44,3 +44,29 @@ canvas[data-testid="game-canvas"] {
   gap: 1.5rem;
   font-size: 1.1rem;
 }
+
+.sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.slider-row span:first-child {
+  flex: 0 0 7rem;
+}
+
+.slider-row input[type="range"] {
+  flex: 1 1 auto;
+}
+
+.slider-value {
+  flex: 0 0 3rem;
+  text-align: right;
+}

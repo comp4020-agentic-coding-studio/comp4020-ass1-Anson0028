@@ -1,42 +1,11 @@
-// The simulation runs in normalised coordinates: the arena is 1x1, and every
-// position, velocity and distance here is a fraction of it. Pixels only exist
-// in render(), where a fraction is multiplied by the canvas's current size.
-// See CLAUDE.md — this is what keeps difficulty the same at both marking
-// viewports and makes resize safe by construction.
-type Vec2 = { x: number; y: number };
+// The live, rendered game. All simulation logic lives in ./sim (pure,
+// DOM-free, headlessly runnable) — this file is deliberately just DOM setup,
+// canvas rendering, and a requestAnimationFrame loop that feeds real dt and
+// real keyboard input into sim's step().
+import { createInitialState, step, DEFAULT_DIFFICULTY, type DifficultyConfig, type Input } from "./sim";
 
-type Enemy = Vec2 & { health: number };
-
-type GameState = {
-  player: Vec2;
-  playerHealth: number;
-  enemies: Enemy[];
-  running: boolean;
-  elapsedMs: number;
-  attackCooldown: number;
-  spawnCooldown: number;
-};
-
-const PLAYER_SPEED = 0.6; // arena-fractions per second
 const PLAYER_RADIUS = 0.02; // fraction of the canvas's shorter side
-const PLAYER_MAX_HEALTH = 100;
-const PLAYER_ATTACK_RANGE = 0.12; // arena-fractions
-const PLAYER_ATTACK_DAMAGE = 20;
-const PLAYER_ATTACK_INTERVAL = 0.4; // seconds between automatic attack pulses
-
 const ENEMY_RADIUS = 0.018;
-const ENEMY_CONTACT_RADIUS = 0.03; // arena-fractions; overlap within this deals contact damage
-const ENEMY_SPAWN_INTERVAL = 1.2; // seconds
-
-// The three quantities the difficulty sliders will drive in slice 3. Speed
-// and contact damage are read fresh every frame (a live change affects every
-// enemy immediately); health is only read when an enemy spawns (changing max
-// health doesn't retroactively heal or hurt enemies already mid-fight).
-const difficulty = {
-  enemyHealth: 40,
-  enemySpeed: 0.15, // arena-fractions per second
-  enemyDamage: 15, // per second of contact
-};
 
 const app = document.querySelector<HTMLElement>("#app");
 
@@ -65,26 +34,72 @@ if (app) {
   hud.append(timerEl, healthEl);
   panel.append(hud);
 
+  // The three difficulty dials write directly into this object; sim's step()
+  // reads it fresh every frame, so a change takes effect immediately — no
+  // restart, no second copy of "the current difficulty" to keep in sync.
+  const config: DifficultyConfig = { ...DEFAULT_DIFFICULTY };
+
+  const sliders = document.createElement("div");
+  sliders.className = "sliders";
+
+  function addSlider(
+    key: keyof DifficultyConfig,
+    testid: string,
+    label: string,
+    min: number,
+    max: number,
+    stepSize: number,
+  ): void {
+    const row = document.createElement("label");
+    row.className = "slider-row";
+
+    const name = document.createElement("span");
+    name.textContent = label;
+
+    const input = document.createElement("input");
+    input.type = "range";
+    input.dataset.testid = testid;
+    input.min = String(min);
+    input.max = String(max);
+    input.step = String(stepSize);
+    input.value = String(config[key]);
+
+    const value = document.createElement("span");
+    value.className = "tabular slider-value";
+    value.textContent = input.value;
+
+    input.addEventListener("input", () => {
+      config[key] = Number(input.value);
+      value.textContent = input.value;
+    });
+
+    row.append(name, input, value);
+    sliders.append(row);
+  }
+
+  addSlider("enemyHealth", "enemy-health", "Enemy health", 10, 100, 5);
+  addSlider("enemySpeed", "enemy-speed", "Enemy speed", 0, 100, 5);
+  addSlider("enemyDamage", "enemy-damage", "Enemy damage", 0, 50, 5);
+
+  panel.append(sliders);
   app.append(panel);
 
   const ctx = canvas.getContext("2d"); // null under jsdom (no `canvas` package) — render() guards it
 
-  const state: GameState = {
-    player: { x: 0.5, y: 0.5 },
-    playerHealth: PLAYER_MAX_HEALTH,
-    enemies: [],
-    running: true,
-    elapsedMs: 0,
-    attackCooldown: PLAYER_ATTACK_INTERVAL,
-    spawnCooldown: ENEMY_SPAWN_INTERVAL,
-  };
+  const state = createInitialState();
 
   const pressed = new Set<string>();
   window.addEventListener("keydown", (e) => pressed.add(e.code));
   window.addEventListener("keyup", (e) => pressed.delete(e.code));
 
-  function clamp01(n: number): number {
-    return Math.min(1, Math.max(0, n));
+  function keyboardInput(): Input {
+    let x = 0;
+    let y = 0;
+    if (pressed.has("ArrowLeft")) x -= 1;
+    if (pressed.has("ArrowRight")) x += 1;
+    if (pressed.has("ArrowUp")) y -= 1;
+    if (pressed.has("ArrowDown")) y += 1;
+    return { x, y };
   }
 
   function resizeCanvas(): void {
@@ -96,83 +111,6 @@ if (app) {
   }
   window.addEventListener("resize", resizeCanvas);
   resizeCanvas();
-
-  function spawnEnemy(): Enemy {
-    const side = Math.floor(Math.random() * 4);
-    const along = Math.random();
-    const [x, y] =
-      side === 0 ? [0, along] : side === 1 ? [1, along] : side === 2 ? [along, 0] : [along, 1];
-    return { x, y, health: difficulty.enemyHealth };
-  }
-
-  function movePlayer(dt: number): void {
-    let dx = 0;
-    let dy = 0;
-    if (pressed.has("ArrowLeft")) dx -= 1;
-    if (pressed.has("ArrowRight")) dx += 1;
-    if (pressed.has("ArrowUp")) dy -= 1;
-    if (pressed.has("ArrowDown")) dy += 1;
-    if (dx === 0 && dy === 0) return;
-    const len = Math.hypot(dx, dy);
-    state.player.x = clamp01(state.player.x + (dx / len) * PLAYER_SPEED * dt);
-    state.player.y = clamp01(state.player.y + (dy / len) * PLAYER_SPEED * dt);
-  }
-
-  function moveEnemies(dt: number): void {
-    for (const enemy of state.enemies) {
-      const dx = state.player.x - enemy.x;
-      const dy = state.player.y - enemy.y;
-      const dist = Math.hypot(dx, dy);
-      if (dist > 1e-6) {
-        enemy.x += (dx / dist) * difficulty.enemySpeed * dt;
-        enemy.y += (dy / dist) * difficulty.enemySpeed * dt;
-      }
-    }
-  }
-
-  function applyContactDamage(dt: number): void {
-    for (const enemy of state.enemies) {
-      const dist = Math.hypot(enemy.x - state.player.x, enemy.y - state.player.y);
-      if (dist <= ENEMY_CONTACT_RADIUS) {
-        state.playerHealth -= difficulty.enemyDamage * dt;
-      }
-    }
-  }
-
-  function runAutomaticAttack(dt: number): void {
-    state.attackCooldown -= dt;
-    if (state.attackCooldown > 0) return;
-    state.attackCooldown += PLAYER_ATTACK_INTERVAL;
-    for (const enemy of state.enemies) {
-      const dist = Math.hypot(enemy.x - state.player.x, enemy.y - state.player.y);
-      if (dist <= PLAYER_ATTACK_RANGE) {
-        enemy.health -= PLAYER_ATTACK_DAMAGE;
-      }
-    }
-    state.enemies = state.enemies.filter((enemy) => enemy.health > 0);
-  }
-
-  function update(dt: number): void {
-    if (!state.running) return;
-
-    movePlayer(dt);
-
-    state.spawnCooldown -= dt;
-    if (state.spawnCooldown <= 0) {
-      state.spawnCooldown += ENEMY_SPAWN_INTERVAL;
-      state.enemies.push(spawnEnemy());
-    }
-
-    moveEnemies(dt);
-    applyContactDamage(dt);
-    runAutomaticAttack(dt);
-
-    state.elapsedMs += dt * 1000;
-    if (state.playerHealth <= 0) {
-      state.playerHealth = 0;
-      state.running = false;
-    }
-  }
 
   function render(): void {
     if (!ctx || canvas.width === 0 || canvas.height === 0) return;
@@ -207,9 +145,9 @@ if (app) {
     mirror.dataset.elapsedMs = String(Math.round(state.elapsedMs));
     mirror.dataset.playerX = String(state.player.x);
     mirror.dataset.playerY = String(state.player.y);
-    mirror.dataset.appliedHealth = String(difficulty.enemyHealth);
-    mirror.dataset.appliedSpeed = String(difficulty.enemySpeed);
-    mirror.dataset.appliedDamage = String(difficulty.enemyDamage);
+    mirror.dataset.appliedHealth = String(config.enemyHealth);
+    mirror.dataset.appliedSpeed = String(config.enemySpeed);
+    mirror.dataset.appliedDamage = String(config.enemyDamage);
 
     timerEl.textContent = formatTime(state.elapsedMs);
     healthEl.textContent = `HP ${Math.ceil(state.playerHealth)}`;
@@ -218,7 +156,7 @@ if (app) {
   let lastFrameTime: number | undefined;
   function loop(now: number): void {
     if (lastFrameTime !== undefined) {
-      update((now - lastFrameTime) / 1000);
+      step(state, (now - lastFrameTime) / 1000, keyboardInput(), config);
     }
     lastFrameTime = now;
     render();

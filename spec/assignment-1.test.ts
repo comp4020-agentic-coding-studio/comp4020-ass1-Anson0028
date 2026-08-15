@@ -72,7 +72,7 @@ describe("core interaction is keyboard-only", () => {
     expect(Number(gameState().dataset.playerX)).toBeGreaterThan(before);
   });
 
-  it.skip("every difficulty slider is a native, enabled, tabbable control", async () => {
+  it("every difficulty slider is a native, enabled, tabbable control", async () => {
     await mountGame();
     for (const name of ["health", "speed", "damage"] as const) {
       const input = slider(name);
@@ -130,7 +130,7 @@ describe("resizing mid-run", () => {
 });
 
 describe("a slider change applies within the same run", () => {
-  it.skip("changes the applied enemy speed immediately, without a restart", async () => {
+  it("changes the applied enemy speed immediately, without a restart", async () => {
     await mountGame();
     tick();
     const before = gameState().dataset.appliedSpeed;
