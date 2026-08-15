@@ -171,7 +171,8 @@ flag it and ask if one turns out to be wrong, don't quietly work around it.
 
 `spec/assignment-1.test.ts` can't see the canvas, so the prototype publishes a
 parallel state onto `[data-testid="game-state"]` (`data-running`,
-`data-elapsed-ms`, `data-player-x/-y`, `data-applied-health/-speed/-damage`).
+`data-elapsed-ms`, `data-player-x/-y`, `data-applied-health/-speed/-damage`,
+`data-active-config` — see below for what that last one is).
 A test that reads a mirror which has quietly diverged from what's actually
 simulated is worse than no test — it stays green while the game is broken.
 So: the mirror is written from the exact same state object the renderer
@@ -195,6 +196,54 @@ multiply by the current canvas size. Reasons this matters more than it looks:
 
 `data-player-x` / `data-player-y` on the mirror are these fractions (0–1),
 not pixels.
+
+### Three configurations, not one dial — and only one is ever live
+
+"Make these equally hard" needs a plural subject. One panel of three sliders
+collapses the button into a generic difficulty slider, which isn't the
+argument. So there are **three parallel panels, nine sliders total** — three
+full `DifficultyConfig` instances (health/speed/damage each) — deliberately
+shaped as different archetypes (a swarm of weak fast enemies, a few slow tanky
+ones, something in between) rather than three copies of the same dial
+position. The claim the button exists to make ("these look nothing alike and
+are the same difficulty") is only sayable if the three actually look nothing
+alike to start with.
+
+Only one arena exists, so only one panel is ever live: the panels are
+selectable, and the selected one drives the single running `SimState` —
+picking a different panel means playing *that* configuration, not reading
+three numbers that claim to match. Which panel is live is part of the mirror
+(`data-active-config` on `[data-testid="game-state"]`), because a test
+asserting "the right configuration is driving the game" needs to see it same
+as everything else the mirror exposes. Switching panels starts a fresh run
+(full health, elapsed 0) rather than swapping the config under a run in
+progress — comparing how a configuration feels is only honest from the same
+starting point every time.
+
+Sliders are namespaced per panel (`enemy-health-0`, `enemy-health-1`, ... not
+one shared `enemy-health`), and only the active panel's slider edits affect
+the live simulation — editing an inactive panel's dial just updates that
+panel's stored config for whenever it's selected next, exactly as if you'd
+paused on it. `scripts/check-viewports.ts`'s liveness check and
+`spec/assignment-1.test.ts`'s tabbability test both query
+`input[type="range"]` generically rather than by exact id, so this scales to
+nine sliders without hardcoding nine ids in two places.
+
+Equalising doesn't independently retune three knobs per non-active panel
+against one scalar target (underdetermined — many stat combinations hit the
+same median survival time). It scales that panel's *entire current shape* by
+one multiplier, binary-searched against the active panel's measured median
+survival, clamped per-axis to the slider's own min/max. That's what keeps a
+panel's archetype recognisable through equalisation (the swarm stays a swarm,
+just tuned to a different intensity) instead of drifting toward one generic
+"balanced" shape every time. See `equalise.ts` for the search itself, and its
+own file comment for the tolerance, trial counts, and chunking rationale —
+those were measured against this repo's actual simulation, not assumed.
+
+If a target survival time is outside what a panel's shape can reach within its
+sliders' own bounds (every axis already at its floor or ceiling), the search
+can't converge, and the UI says so plainly next to that panel rather than
+silently applying its closest attempt and calling it equal.
 
 ### Input: keyboard on desktop, relative touch-drag on phone
 
@@ -251,9 +300,9 @@ is gone as of slice 1 (it describes the starter page, which slice 1 replaces
 4. **Resize** — should be nearly free if slice 1's normalisation is real;
    if the resize test still fails here, that's a genuine finding to report,
    not something to quietly patch around.
-5. **The button** — "make these equally hard" sets the three dials to a
-   same-predicted-survival-time configuration. Gets the accent colour and
-   the most prominent position once it exists.
+5. **The button** — "make these equally hard" retunes two of the three
+   parallel configurations (below) to match the third's measured difficulty.
+   Gets the accent colour and the most prominent position once it exists.
 6. **Visual pass** — the dark/accent/tabular-nums/per-slider-colour direction
    above, applied last, once the mechanics are all real.
 
