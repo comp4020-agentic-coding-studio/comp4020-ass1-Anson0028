@@ -229,6 +229,38 @@ the argument, in visual form:
 - restraint: no gradients-on-everything, no decorative flourishes, no icons
   that carry no information
 
+## Build plan (this week), slice by slice
+
+Building in slices, one commit per slice, `pnpm check` green before each
+commit. Tests in `spec/assignment-1.test.ts` that belong to a not-yet-built
+slice are `it.skip`'d (not deleted, not left failing) and flipped to active
+in the commit that makes them true — that's what keeps "green before every
+commit" compatible with genuinely red-to-green tests. `spec/starter.test.ts`
+is gone as of slice 1 (it describes the starter page, which slice 1 replaces
+— see its own comment for why deleting it is the intended next step).
+
+1. **The dot that moves** — player in normalised coords, arrow keys, canvas
+   draw, state mirror. No enemies, no timer. Turns the keyboard-movement test
+   green.
+2. **Something to survive** — enemies spawn at the arena edge and chase,
+   automatic attacks (no aiming), survival timer (tabular-nums), run ends at
+   zero health.
+3. **The dials** — three native range inputs (health/speed/damage), each with
+   a visible value, changes apply live (no restart). Turns both slider tests
+   green.
+4. **Resize** — should be nearly free if slice 1's normalisation is real;
+   if the resize test still fails here, that's a genuine finding to report,
+   not something to quietly patch around.
+5. **The button** — "make these equally hard" sets the three dials to a
+   same-predicted-survival-time configuration. Gets the accent colour and
+   the most prominent position once it exists.
+6. **Visual pass** — the dark/accent/tabular-nums/per-slider-colour direction
+   above, applied last, once the mechanics are all real.
+
+Standing rule for every slice: no scope beyond the brief (no XP, levels,
+upgrades, enemy types, starting stats) without asking first — the brief is
+one idea and nothing else, and scope is this piece's biggest risk.
+
 ## What this repo has taught me
 
 ### pnpm brings its own Node; `mise.toml` alone does not bind it
