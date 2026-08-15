@@ -84,7 +84,7 @@ describe("core interaction is keyboard-only", () => {
 });
 
 describe("resizing mid-run", () => {
-  it.skip("keeps the run going, in normalised coordinates, and the canvas correct", async () => {
+  it("keeps the run going, in normalised coordinates, and the canvas correct", async () => {
     await mountGame();
     tick();
     tick();
@@ -103,6 +103,28 @@ describe("resizing mid-run", () => {
     expect(playerYBefore).toBeLessThanOrEqual(1);
 
     const canvasWidthBefore = canvasBefore.width;
+
+    // jsdom has no layout engine: getBoundingClientRect() always reports a
+    // zero-size box and never reacts to a window resize, no matter what the
+    // resize handler does. Stubbing it stands in for what a real browser's
+    // layout would report after this resize, so the assertions below test the
+    // actual contract — the handler reads current geometry and updates the
+    // canvas's pixel buffer — rather than something jsdom fundamentally can't
+    // produce. (Real layout is check-viewports.ts's job, not this test's.)
+    const resizedRect = {
+      width: 500,
+      height: 375,
+      top: 0,
+      left: 0,
+      right: 500,
+      bottom: 375,
+      x: 0,
+      y: 0,
+      toJSON() {
+        return this;
+      },
+    };
+    vi.spyOn(canvasBefore, "getBoundingClientRect").mockReturnValue(resizedRect);
 
     window.innerWidth = 500;
     window.innerHeight = 900;
@@ -123,8 +145,11 @@ describe("resizing mid-run", () => {
     expect(Number(gameState().dataset.playerX)).toBeCloseTo(playerXBefore, 5);
     expect(Number(gameState().dataset.playerY)).toBeCloseTo(playerYBefore, 5);
 
-    expect(canvasBefore.width).toBeGreaterThan(0);
-    expect(canvasBefore.height).toBeGreaterThan(0);
+    // The two assertions this replaces (width/height > 0) passed against
+    // jsdom's 300×150 default whether or not resize worked — vacuously green.
+    // These check the canvas actually picked up the stubbed post-resize box.
+    expect(canvasBefore.width, "canvas didn't pick up the new box size on resize").toBe(resizedRect.width);
+    expect(canvasBefore.height, "canvas didn't pick up the new box size on resize").toBe(resizedRect.height);
     expect(canvasBefore.width, "canvas didn't actually resize with the window").not.toBe(canvasWidthBefore);
   });
 });
