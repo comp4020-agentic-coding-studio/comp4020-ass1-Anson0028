@@ -131,15 +131,21 @@ async function main(): Promise<void> {
           // no cascade — so the assertion belongs here, where there is a real
           // one. Everything measured below is measured over the dismissed
           // overlay, so this runs before any of it.
+          // Generalised after this caught the intro overlay and then missed
+          // the stage-two panel, which had the identical cascade problem and
+          // was visible from page load. Every element carrying `hidden` has to
+          // actually be gone, not just claim to be.
           const overlay = await page.evaluate(() => {
-            const intro = document.querySelector<HTMLElement>('[data-testid="intro"]');
             const start = document.querySelector<HTMLButtonElement>('[data-testid="start-button"]');
-            if (!intro || !start) return { ok: false, why: "no intro overlay or start control" };
+            if (!start) return { ok: false, why: "no start control" };
+            const before = Array.from(document.querySelectorAll<HTMLElement>("[hidden]"));
             start.click();
-            const display = getComputedStyle(intro).display;
-            return display === "none"
+            const shown = [...before, ...Array.from(document.querySelectorAll<HTMLElement>("[hidden]"))]
+              .filter((el) => el.hidden && getComputedStyle(el).display !== "none")
+              .map((el) => `${el.dataset.testid ?? el.tagName.toLowerCase()} computes display: ${getComputedStyle(el).display}`);
+            return shown.length === 0
               ? { ok: true, why: "" }
-              : { ok: false, why: `dismissed overlay still computes display: ${display} (hidden=${intro.hidden})` };
+              : { ok: false, why: `element(s) marked hidden are still displayed — ${shown.join("; ")}` };
           });
           if (!overlay.ok) {
             console.error(`✗ ${label}: ${overlay.why}`);

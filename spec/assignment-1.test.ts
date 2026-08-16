@@ -657,3 +657,21 @@ describe("the phone can play at all", () => {
     expect(Number(gameState().dataset.elapsedMs), "touching the arena did not resume the run").toBeGreaterThan(resumed);
   });
 });
+
+// Live-site bug: the stage-two panel lost the cascade (`#app section` beats
+// `.challenge[hidden]`), so it was on screen from page load and "test my
+// answer" could be pressed before a target existed. The verdict then divided
+// by a target of zero and reported "Infinity% off".
+describe("stage two refuses to score an attempt with no target", () => {
+  it("says so instead of dividing by zero", async () => {
+    await mountGame();
+    tick();
+    document.querySelector<HTMLButtonElement>('[data-testid="test-answer-button"]')!.click();
+    for (let i = 0; i < 200; i++) tick(20);
+
+    const verdict = document.querySelector<HTMLElement>('[data-testid="challenge-verdict"]')!;
+    expect(verdict.textContent, "scored an attempt against no target").not.toMatch(/Infinity/);
+    expect(verdict.textContent).toMatch(/no target/i);
+    expect(verdict.dataset.hit, "a scoreless attempt still recorded a verdict").toBeUndefined();
+  });
+});

@@ -850,6 +850,13 @@ if (app) {
 
   testBtn.addEventListener("click", () => {
     if (attemptJob) return;
+    // No target, nothing to score against. Reachable only if stage two is on
+    // screen without having been entered — which the cascade bug above made
+    // possible, and which produced "Infinity% off" on the live site.
+    if (targetMs <= 0) {
+      challengeVerdict.textContent = "No target set yet — press “Now you try” to get one.";
+      return;
+    }
     attemptJob = { gen: measurePanels([CHALLENGE_PANEL], (i: number) => configs[i], Math.random), trials: 0 };
     testBtn.disabled = true;
     challengeVerdict.textContent = "Measuring…";

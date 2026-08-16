@@ -413,12 +413,15 @@ canvas[data-testid="game-canvas"] {
   background: var(--bg);
 }
 
-/* `#app section` (1,0,1) outranks `.intro[hidden]` (0,2,0), so the plain
-   attribute rule lost the cascade and the dismissed overlay stayed on screen
-   at `display: flex` while its `hidden` property read true. The jsdom test
-   couldn't see it — it asserts the flag, and jsdom runs no cascade — so the
-   real-browser assertion in check-viewports.ts is the sensor for this. */
-#app section.intro[hidden] {
+/* `#app section` (1,0,1) outranks a plain `.thing[hidden]` (0,2,0), so an
+   element with `hidden` set stayed on screen at `display: flex` while its
+   property read true. It bit twice: a dismissed opening overlay, and then the
+   stage-two panel, which was visible from page load and let someone press
+   "test my answer" before a target existed — that produced "Infinity% off" on
+   the live site. Written once for everything inside #app rather than patched
+   per element, because the second one was the first one again. jsdom runs no
+   cascade and can only see the flag, so check-viewports.ts is the sensor. */
+#app [hidden] {
   display: none;
 }
 
@@ -630,10 +633,6 @@ canvas[data-testid="game-canvas"] {
 
 .challenge-button:disabled:hover {
   border-color: var(--border);
-}
-
-.challenge[hidden] {
-  display: none;
 }
 
 .challenge-intro {
