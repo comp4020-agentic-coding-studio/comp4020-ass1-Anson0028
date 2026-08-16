@@ -51,6 +51,11 @@ const PANEL_PRESETS: readonly DifficultyConfig[] = [
   { enemyHealth: 60, enemySpeed: 65, enemyDamage: 25 }, // hunter: tough AND fast, hits moderately hard
 ];
 const PANEL_LABELS = ["Swarm", "Tanks", "Hunter"] as const;
+const PANEL_BLURBS = [
+  "Dies to a single hit, but it is faster than you and they never stop arriving. Death by a hundred small ones.",
+  "Takes five hits to kill and moves six times slower than you, so you can walk away from it all day — but three seconds of contact takes a third of your health.",
+  "Faster than you, survives three hits, and hurts. The one that is actually dangerous.",
+] as const;
 
 // TOLERANCE_FRACTION / FINAL_TRIALS / SEARCH_TRIALS / SEARCH_ITERATIONS all
 // live in ./equalise, next to the search they tune — see that file's
@@ -247,6 +252,19 @@ if (app) {
     legend.append(radio, legendText);
     configSection.append(legend);
 
+    // "Swarm", "Tanks" and "Hunter" are trade jargon, and the page defined
+    // none of them. That's fatal rather than untidy: "these three feel nothing
+    // alike" is the premise the whole argument rests on, so if it doesn't land
+    // the payoff reads as "three slider sets are roughly similar, obviously".
+    // Each line is derived from the constants, not invented — the player has
+    // 100 HP, moves 0.6 arena-fractions/sec, and auto-attacks every 0.4s for
+    // 20 damage.
+    const blurb = document.createElement("p");
+    blurb.className = "panel-blurb";
+    blurb.dataset.testid = `panel-blurb-${p}`;
+    blurb.textContent = PANEL_BLURBS[p];
+    configSection.append(blurb);
+
     const sliderGroup = document.createElement("div");
     sliderGroup.className = "sliders";
     sliderGroup.append(...sliderRows[p]);
@@ -262,6 +280,16 @@ if (app) {
   }
 
   panel.append(configPanels);
+
+  // Beat three of the reading order (CLAUDE.md): pose the question the button
+  // answers, immediately above the button, so pressing it is a reply rather
+  // than a poke at an unexplained control.
+  const prompt = document.createElement("p");
+  prompt.className = "equalise-prompt";
+  prompt.dataset.testid = "equalise-prompt";
+  prompt.textContent =
+    "Selected panel is the one you are playing. The other two get retuned until a fixed reference player survives them for as long as it survives yours.";
+  panel.append(prompt);
 
   const equaliseBtn = document.createElement("button");
   equaliseBtn.type = "button";

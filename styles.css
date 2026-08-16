@@ -255,6 +255,43 @@ canvas[data-testid="game-canvas"] {
   color: var(--text-dim);
 }
 
+/* The explainer's reading order (CLAUDE.md). The brief asks for an interactive
+   explainer, and without these three the page is a dashboard with no argument
+   on it: the lede says what the visitor is looking at, the blurbs define the
+   archetype names the whole premise depends on, and the prompt poses the
+   question the button answers. */
+
+/* Title and lede share one row on desktop rather than stacking, so the
+   explainer's opening costs one line of vertical space instead of four and
+   the arena still starts high on the page. Stacks on phone. */
+.masthead {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: 0.25rem 1.5rem;
+  align-items: baseline;
+}
+
+.lede {
+  max-width: 78ch;
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--text-dim);
+}
+
+.panel-blurb {
+  margin: 0 0 0.25rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+.equalise-prompt {
+  margin: 0.25rem 0 0.5rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
 /* The thesis, not a feature: the largest, most saturated control on the
    page, and the only other place --accent appears is the status readout it
    drives (.equalise-status), so the colour keeps one meaning throughout. */
@@ -307,6 +344,10 @@ canvas[data-testid="game-canvas"] {
 
 @media (width <= 640px) {
   #app {
+    grid-template-columns: 1fr;
+  }
+
+  .masthead {
     grid-template-columns: 1fr;
   }
 
