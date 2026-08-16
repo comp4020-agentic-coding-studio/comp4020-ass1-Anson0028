@@ -33,9 +33,9 @@ function mulberry32(seed: number): () => number {
 }
 
 const BOUNDS = {
-  enemyHealth: { min: 10, max: 100 },
-  enemySpeed: { min: 0, max: 100 },
-  enemyDamage: { min: 0, max: 50 },
+  enemyHealth: { min: 10, max: 100, step: 5 },
+  enemySpeed: { min: 0, max: 100, step: 5 },
+  enemyDamage: { min: 0, max: 50, step: 5 },
 };
 
 // Three deliberately different, unequal-by-construction archetypes — the

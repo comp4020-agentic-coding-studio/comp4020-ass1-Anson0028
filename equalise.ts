@@ -10,7 +10,12 @@
 // against one target (underdetermined).
 import { ENEMY_PURSUIT_SPEED_RATING, fleeNearestPolicy, medianSurvivalMsSteps, type DifficultyConfig } from "./sim";
 
-export type AxisBounds = Record<keyof DifficultyConfig, { min: number; max: number }>;
+// `step` is the resolution of the control that displays this axis. The search
+// only ever proposes configurations that control can represent — see
+// scaledConfig. Without it the search returns its own arithmetic (a slider
+// whose step is 5 sat next to the label "59.9853515625"), and worse, the
+// achieved time it reports belongs to a configuration nobody is playing.
+export type AxisBounds = Record<keyof DifficultyConfig, { min: number; max: number; step: number }>;
 
 export type EqualiseStep = { config: DifficultyConfig; achievedMs: number };
 
@@ -107,7 +112,14 @@ function scaledConfig(base: Readonly<DifficultyConfig>, bounds: AxisBounds, k: n
     // A zero base can't be scaled by multiplication — leave it at zero
     // rather than pretending a multiplier can move it. Only reachable if a
     // panel's own slider was manually set to its zero end before equalising.
-    out[axis] = b === 0 ? 0 : Math.min(bounds[axis].max, Math.max(bounds[axis].min, b * k));
+    const { min, max, step } = bounds[axis];
+    const scaled = b === 0 ? 0 : Math.min(max, Math.max(min, b * k));
+    // Quantised here, inside the search, rather than rounded on the way out:
+    // every candidate the search measures is then one the sliders can hold, so
+    // the achieved time it finally reports belongs to the configuration the
+    // visitor is left playing. Rounding afterwards would report a time
+    // measured against a configuration that no longer exists.
+    out[axis] = step > 0 ? Math.min(max, Math.max(min, Math.round(scaled / step) * step)) : scaled;
   }
   return out;
 }
