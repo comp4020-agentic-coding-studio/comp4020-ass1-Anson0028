@@ -559,6 +559,14 @@ canvas[data-testid="game-canvas"] {
   align-self: start;
 }
 
+.controls-hint {
+  margin: 0 0 0.4rem;
+  color: var(--text-dim);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+}
+
 /* The hint is positioned against this, not against .arena, which also holds
    the stage-two control below the canvas. */
 .arena-canvas {

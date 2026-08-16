@@ -233,6 +233,15 @@ if (app) {
   // positioned against it, and when the stage-two control was later appended to
   // .arena, "the bottom of the arena" stopped meaning "the bottom of the
   // canvas" — so the hint sat on top of that button.
+  // The opening screen says this once, but a visitor who came back to the tool
+  // after reading it has no reminder anywhere. Above the arena, where the
+  // question "how do I move" gets asked.
+  const controlsHint = document.createElement("p");
+  controlsHint.className = "controls-hint";
+  controlsHint.dataset.testid = "controls-hint";
+  controlsHint.textContent = "Press WASD or the arrow keys to move — or drag on the arena.";
+  arena.append(controlsHint);
+
   const arenaCanvas = document.createElement("div");
   arenaCanvas.className = "arena-canvas";
 
