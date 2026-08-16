@@ -638,59 +638,111 @@ if (app) {
     const py = state.player.y * cssHeight;
     ctx.clearRect(0, 0, cssWidth, cssHeight);
 
-    // The attack range (0.12) against the enemy contact radius (0.03) is the
-    // game: an enemy has to survive this ring long enough to reach the middle
-    // of it. Neither was drawn before, so neither was playable knowledge.
-    const attackPhase = 1 - Math.min(1, state.attackCooldown / PLAYER_ATTACK_INTERVAL);
-    ctx.strokeStyle = `rgb(226 178 84 / ${18 + 26 * attackPhase}%)`;
-    ctx.lineWidth = 1 + 1.5 * attackPhase;
+    // Instrument HUD (CLAUDE.md): the arena is a sensor display, not a
+    // playfield. Cyan is measurement, red is what hurts you, and nothing here
+    // is drawn that doesn't carry information.
+    const CYAN = "34 211 238";
+    const RED = "255 107 131";
+
+    // A graticule, so distance in the arena is readable rather than merely
+    // felt — the same reason the rest of the page reports numbers.
+    ctx.strokeStyle = `rgb(${CYAN} / 6%)`;
+    ctx.lineWidth = 1;
+    const cell = side * 0.1;
     ctx.beginPath();
-    ctx.arc(px, py, PLAYER_ATTACK_RANGE * side, 0, Math.PI * 2);
+    for (let gx = cell; gx < cssWidth; gx += cell) {
+      ctx.moveTo(Math.round(gx) + 0.5, 0);
+      ctx.lineTo(Math.round(gx) + 0.5, cssHeight);
+    }
+    for (let gy = cell; gy < cssHeight; gy += cell) {
+      ctx.moveTo(0, Math.round(gy) + 0.5);
+      ctx.lineTo(cssWidth, Math.round(gy) + 0.5);
+    }
+    ctx.stroke();
+
+    // The attack range (0.12) against the enemy contact radius (0.03) is the
+    // game: an enemy has to survive this ring to reach the middle of it.
+    // Dashed and slowly rotating on the attack beat, like a sweep.
+    const attackPhase = 1 - Math.min(1, state.attackCooldown / PLAYER_ATTACK_INTERVAL);
+    const ringRadius = PLAYER_ATTACK_RANGE * side;
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(attackPhase * Math.PI * 0.5);
+    ctx.strokeStyle = `rgb(${CYAN} / ${30 + 35 * attackPhase}%)`;
+    ctx.lineWidth = 1.2;
+    ctx.setLineDash([4, 6]);
+    ctx.beginPath();
+    ctx.arc(0, 0, ringRadius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    ctx.strokeStyle = `rgb(${CYAN} / ${8 + 10 * attackPhase}%)`;
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.arc(px, py, ringRadius, 0, Math.PI * 2);
     ctx.stroke();
 
     tracers = tracers.filter((t) => now - t.born < TRACER_LIFETIME_MS);
     for (const tracer of tracers) {
       const life = 1 - (now - tracer.born) / TRACER_LIFETIME_MS;
-      ctx.strokeStyle = `rgb(226 178 84 / ${Math.round(life * 85)}%)`;
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = `rgb(${CYAN} / ${Math.round(life * 90)}%)`;
+      ctx.lineWidth = 1.6;
       ctx.beginPath();
       ctx.moveTo(px, py);
       ctx.lineTo(tracer.x * cssWidth, tracer.y * cssHeight);
       ctx.stroke();
     }
 
-    // Enemies are squares and the player is a ringed circle: shape, not just
-    // brightness, so the two are still distinguishable on a small canvas and
-    // without relying on a value difference. A damaged enemy shrinks toward
-    // its contact radius and dims, so a 90-health Tanks soaking five hits
-    // reads differently from a Swarm dying to one.
+    // Enemies are wireframe diamonds in the warning colour, and their outline
+    // breaks to a dash as they take damage — shape and line quality, not just
+    // brightness, so a damaged one reads without relying on a value
+    // difference. A 65-health Hard enemy soaking five hits looks nothing like
+    // an Easy one dying to a single one.
     const config = configs[activeIndex];
     for (const enemy of state.enemies) {
       const life = Math.max(0, Math.min(1, enemy.health / Math.max(1, config.enemyHealth)));
-      // This interpolated between ENEMY_CONTACT_RADIUS (0.03) and
-      // ENEMY_RADIUS (0.018) while claiming to shrink a damaged enemy — but
-      // the contact radius is the LARGER of the two, so a nearly-dead enemy
-      // grew. Now it interpolates within the drawn radius, so damage reads as
-      // damage.
       const r = ENEMY_RADIUS * (ENEMY_MIN_RADIUS_FRACTION + (1 - ENEMY_MIN_RADIUS_FRACTION) * life) * side;
-      ctx.fillStyle = `rgb(158 158 165 / ${Math.round(45 + 55 * life)}%)`;
-      ctx.fillRect(enemy.x * cssWidth - r, enemy.y * cssHeight - r, r * 2, r * 2);
+      const ex = enemy.x * cssWidth;
+      const ey = enemy.y * cssHeight;
+      ctx.strokeStyle = `rgb(${RED} / ${Math.round(55 + 45 * life)}%)`;
+      ctx.lineWidth = 1.4;
+      ctx.setLineDash(life < 0.7 ? [3, 3] : []);
+      ctx.beginPath();
+      ctx.moveTo(ex, ey - r);
+      ctx.lineTo(ex + r, ey);
+      ctx.lineTo(ex, ey + r);
+      ctx.lineTo(ex - r, ey);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.setLineDash([]);
     }
 
-    // Two seconds of immunity is long enough that, unmarked, a hit reads as
-    // not having registered at all. A slow pulse rather than a fast flash:
-    // this is feedback, not a strobe.
+    // The player is a reticle: crosshair plus ring, the thing an instrument
+    // draws around what it is tracking. Pulses while immune — two seconds of
+    // invulnerability, unmarked, reads as a hit that never registered.
     const immune = state.invulnerableFor > 0;
-    ctx.globalAlpha = immune ? 0.45 + 0.35 * Math.abs(Math.sin(now / 220)) : 1;
-    ctx.fillStyle = "#f2f2f4";
+    ctx.globalAlpha = immune ? 0.4 + 0.4 * Math.abs(Math.sin(now / 220)) : 1;
+    const pr = PLAYER_RADIUS * side;
+    ctx.strokeStyle = "#d6fbff";
+    ctx.lineWidth = 1.6;
     ctx.beginPath();
-    ctx.arc(px, py, PLAYER_RADIUS * side, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "#e2b254";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(px, py, PLAYER_RADIUS * side + 3, 0, Math.PI * 2);
+    ctx.moveTo(px, py - pr * 2.1);
+    ctx.lineTo(px, py - pr * 0.9);
+    ctx.moveTo(px, py + pr * 0.9);
+    ctx.lineTo(px, py + pr * 2.1);
+    ctx.moveTo(px - pr * 2.1, py);
+    ctx.lineTo(px - pr * 0.9, py);
+    ctx.moveTo(px + pr * 0.9, py);
+    ctx.lineTo(px + pr * 2.1, py);
     ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(px, py, pr, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = `rgb(${CYAN})`;
+    ctx.beginPath();
+    ctx.arc(px, py, pr * 0.32, 0, Math.PI * 2);
+    ctx.fill();
     ctx.globalAlpha = 1;
   }
 
