@@ -1,37 +1,109 @@
-body {
-  margin: 0;
-  padding: 2rem;
-  font-family: system-ui, sans-serif;
-  line-height: 1.6;
-  color: #1a1a1a;
+/* Visual direction: a designer's tuning tool, not a game portal — see
+   CLAUDE.md's "Visual direction" section. Dark surface throughout; the one
+   accent colour is spent only on the equalise button and the readout it
+   changes (--accent), never elsewhere. Health/speed/damage each get their
+   own colour, reused everywhere the three are compared, so the mapping is
+   learned once rather than re-read per panel. */
+:root {
+  --bg: #121214;
+  --surface: #1b1b1f;
+  --surface-raised: #232328;
+  --border: #35353c;
+  --text: #e7e7ea;
+  --text-dim: #a6a6ae;
+  --accent: #e8b34d;
+  --accent-ink: #241a05;
+  --stat-health: #6fd0e0;
+  --stat-speed: #8fd45e;
+  --stat-damage: #f08a72;
 }
 
-main {
-  max-width: 60rem;
-  margin: 0 auto;
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+}
+
+/* The template's "Home" link pointed at this same page — dead on a one-page
+   site, and the first thing in the tab order. Replaced rather than deleted:
+   spec/invariants.test.ts requires a navigation landmark on every page, and
+   the honest landmark for a single-page tool is a skip link. Kept off-screen
+   at full size (not clipped to 0) so it stays a real 44x44 target when it
+   takes focus. */
+.skip-link {
+  position: absolute;
+  left: -100vw;
+  z-index: 1;
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.skip-link:focus {
+  left: 0.5rem;
+  top: 0.5rem;
 }
 
 a {
-  color: #0b5fff;
+  color: var(--stat-health);
+  display: flex;
+  align-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding-inline: 0.75rem;
 }
 
-#app {
+main {
   display: flex;
-  flex-wrap: wrap;
-  gap: 1.5rem;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem 1rem;
+  max-width: 100rem;
+  margin: 0 auto;
+}
+
+/* The provocation, not chrome. CLAUDE.md's "tuning tool, not a game portal"
+   governs decoration; the one sentence that tells a visitor what this is has
+   to carry typographic weight at both marking viewports. */
+h1 {
+  margin: 0 0 0.25rem;
+  font-size: clamp(1.75rem, 3.2vw, 2.75rem);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  text-wrap: balance;
+}
+
+/* Canvas left / panel right on desktop (CLAUDE.md); collapses to a single
+   stacked column on phone below. The mirror stays `hidden`, so it never
+   takes a grid track. */
+#app {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 26rem);
+  gap: 1.25rem;
+  align-items: start;
 }
 
 canvas[data-testid="game-canvas"] {
   display: block;
   width: 100%;
-  max-width: 48rem;
   aspect-ratio: 4 / 3;
-  background: #111;
+  max-height: calc(100vh - 8rem);
+  background: #0a0a0b;
+  border-radius: 0.25rem;
 }
 
 #app section {
-  flex: 1 1 12rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
 }
 
 .tabular {
@@ -48,34 +120,70 @@ canvas[data-testid="game-canvas"] {
 .config-panels {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.75rem;
 }
 
 .config-panel {
-  border: 1px solid #ccc;
-  border-radius: 0.25rem;
-  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--surface);
+  padding: 0.65rem 0.75rem;
+  margin: 0;
+}
+
+.config-panel legend {
+  padding: 0;
+  display: flex;
+  align-items: center;
+  font-weight: 600;
+}
+
+/* The radio itself is the touch target axe/check:a11y measures, not a
+   surrounding label — 13x13px natively, well under 44x44 at 390x844.
+   `appearance: none` plus an explicit box lets the hit area grow to 44x44
+   while the visible dot stays a small, unobtrusive circle centred inside it. */
+.config-panel legend input[type="radio"] {
+  appearance: none;
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  position: relative;
+  cursor: pointer;
+}
+
+.config-panel legend input[type="radio"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--text-dim);
+  border-radius: 50%;
+  background: transparent;
+}
+
+.config-panel legend input[type="radio"]:checked::after {
+  border-color: var(--accent);
+  background: var(--accent);
 }
 
 .sliders {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  margin-top: 0.75rem;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
 }
 
 .slider-row {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.6rem;
 }
 
 .slider-row span:first-child {
-  flex: 0 0 7rem;
-}
-
-.slider-row input[type="range"] {
-  flex: 1 1 auto;
+  flex: 0 0 6rem;
+  font-size: 0.9rem;
 }
 
 .slider-value {
@@ -83,16 +191,130 @@ canvas[data-testid="game-canvas"] {
   text-align: right;
 }
 
-.panel-status {
-  min-height: 1.2em;
-  font-size: 0.9rem;
+.slider-row[data-stat="health"] span:first-child,
+.slider-row[data-stat="health"] .slider-value {
+  color: var(--stat-health);
 }
 
+.slider-row[data-stat="speed"] span:first-child,
+.slider-row[data-stat="speed"] .slider-value {
+  color: var(--stat-speed);
+}
+
+.slider-row[data-stat="damage"] span:first-child,
+.slider-row[data-stat="damage"] .slider-value {
+  color: var(--stat-damage);
+}
+
+/* Custom-rendered range input: the hit box is a flat 44px tall regardless of
+   viewport (the requirement is a CSS-px minimum, not a look), the visible
+   track stays a slim 4px line inside it. No transition on the thumb/track —
+   CLAUDE.md is explicit that the slider-to-game response has no easing. */
+.slider-row input[type="range"] {
+  appearance: none;
+  flex: 1 1 auto;
+  height: 44px;
+  min-width: 44px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.slider-row input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+}
+
+.slider-row input[type="range"]::-moz-range-track {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+}
+
+.slider-row input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: var(--text);
+}
+
+.slider-row input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 50%;
+  background: var(--text);
+}
+
+.panel-status {
+  min-height: 1.2em;
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+/* The thesis, not a feature: the largest, most saturated control on the
+   page, and the only other place --accent appears is the status readout it
+   drives (.equalise-status), so the colour keeps one meaning throughout. */
 .equalise-button {
-  margin-top: 1rem;
-  padding: 0.6rem 1rem;
+  padding: 0.85rem 1.25rem;
+  min-height: 44px;
+  border: none;
+  border-radius: 0.375rem;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.equalise-button:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .equalise-button {
+    transition: background-color 150ms ease, opacity 150ms ease;
+  }
+}
+
+.equalise-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 85%, white);
+}
+
+[data-testid="equalise-status"] {
+  margin: 0;
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .equalise-limitation {
-  font-size: 0.85rem;
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+/* Visible on every focusable control by default (nothing here sets
+   `outline: none`) — this just makes the ring read clearly against the dark
+   surface instead of relying on the browser's own default colour. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (width <= 640px) {
+  #app {
+    grid-template-columns: 1fr;
+  }
+
+  canvas[data-testid="game-canvas"] {
+    max-height: 60vh;
+  }
+
+  .slider-row span:first-child {
+    flex-basis: 5rem;
+  }
 }

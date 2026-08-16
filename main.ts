@@ -178,6 +178,11 @@ if (app) {
   ): void {
     const row = document.createElement("label");
     row.className = "slider-row";
+    // Drives styles.css's per-stat colour (health/speed/damage), so the same
+    // three colours mean the same thing in every one of the nine sliders —
+    // see CLAUDE.md's "three sliders get three distinguishable colours,
+    // reused everywhere" rule.
+    row.dataset.stat = key === "enemyHealth" ? "health" : key === "enemySpeed" ? "speed" : "damage";
 
     const name = document.createElement("span");
     name.textContent = label;

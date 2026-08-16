@@ -223,8 +223,7 @@ async function checkReducedMotion(page: Page, label: string): Promise<boolean> {
   const stillAnimating = await page.evaluate((selectors: string[]) => {
     const remaining: string[] = [];
     for (const sel of selectors) {
-      const el =
-        document.querySelector<HTMLElement>(`[data-testid="${sel}"]`) ?? document.querySelector<HTMLElement>(sel);
+      const el = document.querySelector<HTMLElement>(sel);
       if (!el) continue;
       const s = getComputedStyle(el);
       if (s.transitionDuration.split(",").some((d) => parseFloat(d) > 0)) remaining.push(sel);
