@@ -8,11 +8,12 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "check": "pnpm typecheck && pnpm build && oxlint --ignore-path .gitignore && stylelint \"**/*.css\" --ignore-path .gitignore --allow-empty-input && vitest run",
+    "check": "pnpm typecheck && pnpm build && oxlint --ignore-path .gitignore && stylelint \"**/*.css\" --ignore-path .gitignore --allow-empty-input && node scripts/check-payload.ts && vitest run",
     "check:evidence": "node scripts/check-evidence.ts",
     "check:viewports": "node scripts/check-viewports.ts",
     "check:a11y": "node scripts/check-a11y.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check:payload": "node scripts/check-payload.ts"
   },
   "devDependencies": {
     "@types/jsdom": "^27.0.0",

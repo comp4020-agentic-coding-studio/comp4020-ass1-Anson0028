@@ -1,6 +1,6 @@
 // The live, rendered game. All simulation logic lives in ./sim (pure,
 // DOM-free, headlessly runnable) and the equalisation search lives in
-// ./equalise (also pure, DOM-free) — this file is deliberately just DOM
+// ./measure (also pure, DOM-free) — this file is deliberately just DOM
 // setup, canvas rendering, a requestAnimationFrame loop, and the chunked
 // driver that runs the equalise search a little at a time per frame.
 import {
@@ -14,7 +14,7 @@ import {
   type DifficultyConfig,
   type Input,
 } from "./sim";
-import { measurePanels, FINAL_TRIALS, TOLERANCE_FRACTION, type AxisBounds, type MeasureProgress } from "./equalise";
+import { measurePanels, FINAL_TRIALS, TOLERANCE_FRACTION, type AxisBounds, type MeasureProgress } from "./measure";
 import type { Measurement } from "./sim";
 
 const PLAYER_RADIUS = 0.02; // fraction of the canvas's shorter side
@@ -40,7 +40,7 @@ const BOUNDS: AxisBounds = {
 // (sim.ts, = 60): swarm and hunter sit above it (their enemies CAN catch a
 // fleeing player) with two different health/damage trade-offs from each
 // other; tanks sits below it (its enemies CANNOT — see isCorneringRegime in
-// equalise.ts). That split is intentional, not incidental — it's what makes
+// measure.ts). That split is intentional, not incidental — it's what makes
 // pressing "make these equally hard" produce one clean match and one honest,
 // explained failure from a cold start, rather than three failures that would
 // just read as a broken button. An earlier version of this third preset was
@@ -90,7 +90,7 @@ const CHALLENGE_PANEL = 1; // Medium: retuned in place, so there is no fourth se
 const BASELINE = { easyMs: 26800, mediumMs: 10300, hardMs: 7800, seeds: 5, measuredOn: "16 August 2026" };
 
 // TOLERANCE_FRACTION / FINAL_TRIALS / SEARCH_TRIALS / SEARCH_ITERATIONS all
-// live in ./equalise, next to the search they tune — see that file's
+// live in ./measure, next to the measurement they describe — see that file's
 // comments for how each number was derived from this sim's own measured
 // sampling noise, not guessed.
 
@@ -104,9 +104,9 @@ const BASELINE = { easyMs: 26800, mediumMs: 10300, hardMs: 7800, seeds: 5, measu
 // 5944ms) against ~60fps at rest — 4 canvas updates a second is a freeze, not
 // a dip, and "must not freeze the page" was a stated requirement this failed.
 //
-// Fix: equalise.ts's generators (medianSurvivalMsSteps, measureSteps) now
+// Fix: measure.ts's generators now
 // yield once per individual simulated trial (one runHeadless call) instead of
-// once per whole batch, and equaliseAllPanels chunks ALL three of the flow's
+// once per whole batch, and measurePanels chunks all of the flow's
 // measurements this way — the search's own bisection probes, but also the
 // reference-target measurement and the post-search FINAL_TRIALS re-verify,
 // which were two more synchronous, unchunked medianSurvivalMs calls the old
