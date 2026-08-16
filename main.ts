@@ -3,7 +3,16 @@
 // ./equalise (also pure, DOM-free) — this file is deliberately just DOM
 // setup, canvas rendering, a requestAnimationFrame loop, and the chunked
 // driver that runs the equalise search a little at a time per frame.
-import { createInitialState, step, ENEMY_PURSUIT_SPEED_RATING, type DifficultyConfig, type Input } from "./sim";
+import {
+  createInitialState,
+  step,
+  ENEMY_CONTACT_RADIUS,
+  ENEMY_PURSUIT_SPEED_RATING,
+  PLAYER_ATTACK_INTERVAL,
+  PLAYER_ATTACK_RANGE,
+  type DifficultyConfig,
+  type Input,
+} from "./sim";
 import {
   equaliseAllPanels,
   isCorneringRegime,
@@ -122,7 +131,10 @@ if (app) {
   const healthEl = document.createElement("span");
   healthEl.dataset.testid = "player-health";
   healthEl.className = "tabular";
-  hud.append(timerEl, healthEl);
+  const enemyCountEl = document.createElement("span");
+  enemyCountEl.dataset.testid = "enemy-count";
+  enemyCountEl.className = "tabular";
+  hud.append(timerEl, healthEl, enemyCountEl);
   panel.append(hud);
 
   // Three live config objects (mutable copies of the presets — equalising or
@@ -345,22 +357,87 @@ if (app) {
   window.addEventListener("resize", resizeCanvas);
   resizeCanvas();
 
-  function render(): void {
+  // The whole loop was invisible: enemies drifted in and vanished, with no
+  // sign the player had a weapon at all. That makes "Enemy health" — one of
+  // the three dials the argument rests on — meaningless to a visitor, so the
+  // mechanic has to be legible before any of the difficulty claim can land.
+  //
+  // All of it is derived from public simulation state. Hit resolution is
+  // instant and radius-based inside sim.ts; the beams below are hitscan
+  // tracers, the accurate visual for an instant-resolution weapon (this is
+  // what shipped games draw for hitscan guns), not a re-implementation of the
+  // attack as travelling projectiles. Real projectiles would change the
+  // simulation, and every measured number in the equalise search — the
+  // tolerance, the determinism of equalise.test.ts, every achieved survival
+  // figure — was calibrated against the mechanic that actually exists. The
+  // Tanks non-convergence finding would survive that (it turns on player
+  // speed versus enemy speed, not on how the attack works) but its numbers
+  // would not. Not a trade worth making for a visual available for free.
+  type Tracer = { x: number; y: number; born: number };
+  let tracers: Tracer[] = [];
+  const TRACER_LIFETIME_MS = 140;
+
+  // Captured *before* step() runs, because an enemy killed by this tick is
+  // filtered out of state.enemies by the time render() sees it — and the
+  // one-hit Swarm kill is exactly the case most worth showing.
+  function captureTracers(dt: number, now: number): void {
+    if (state.attackCooldown - dt > 0) return;
+    for (const enemy of state.enemies) {
+      const dist = Math.hypot(enemy.x - state.player.x, enemy.y - state.player.y);
+      if (dist <= PLAYER_ATTACK_RANGE) tracers.push({ x: enemy.x, y: enemy.y, born: now });
+    }
+  }
+
+  function render(now: number): void {
     if (!ctx || cssWidth === 0 || cssHeight === 0) return;
     const side = Math.min(cssWidth, cssHeight);
+    const px = state.player.x * cssWidth;
+    const py = state.player.y * cssHeight;
     ctx.clearRect(0, 0, cssWidth, cssHeight);
 
-    ctx.fillStyle = "#888";
-    for (const enemy of state.enemies) {
+    // The attack range (0.12) against the enemy contact radius (0.03) is the
+    // game: an enemy has to survive this ring long enough to reach the middle
+    // of it. Neither was drawn before, so neither was playable knowledge.
+    const attackPhase = 1 - Math.min(1, state.attackCooldown / PLAYER_ATTACK_INTERVAL);
+    ctx.strokeStyle = `rgb(226 178 84 / ${18 + 26 * attackPhase}%)`;
+    ctx.lineWidth = 1 + 1.5 * attackPhase;
+    ctx.beginPath();
+    ctx.arc(px, py, PLAYER_ATTACK_RANGE * side, 0, Math.PI * 2);
+    ctx.stroke();
+
+    tracers = tracers.filter((t) => now - t.born < TRACER_LIFETIME_MS);
+    for (const tracer of tracers) {
+      const life = 1 - (now - tracer.born) / TRACER_LIFETIME_MS;
+      ctx.strokeStyle = `rgb(226 178 84 / ${Math.round(life * 85)}%)`;
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(enemy.x * cssWidth, enemy.y * cssHeight, ENEMY_RADIUS * side, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.moveTo(px, py);
+      ctx.lineTo(tracer.x * cssWidth, tracer.y * cssHeight);
+      ctx.stroke();
     }
 
-    ctx.fillStyle = "#e8e8e8";
+    // Enemies are squares and the player is a ringed circle: shape, not just
+    // brightness, so the two are still distinguishable on a small canvas and
+    // without relying on a value difference. A damaged enemy shrinks toward
+    // its contact radius and dims, so a 90-health Tanks soaking five hits
+    // reads differently from a Swarm dying to one.
+    const config = configs[activeIndex];
+    for (const enemy of state.enemies) {
+      const life = Math.max(0, Math.min(1, enemy.health / Math.max(1, config.enemyHealth)));
+      const r = (ENEMY_CONTACT_RADIUS + (ENEMY_RADIUS - ENEMY_CONTACT_RADIUS) * life) * side;
+      ctx.fillStyle = `rgb(158 158 165 / ${Math.round(45 + 55 * life)}%)`;
+      ctx.fillRect(enemy.x * cssWidth - r, enemy.y * cssHeight - r, r * 2, r * 2);
+    }
+
+    ctx.fillStyle = "#f2f2f4";
     ctx.beginPath();
-    ctx.arc(state.player.x * cssWidth, state.player.y * cssHeight, PLAYER_RADIUS * side, 0, Math.PI * 2);
+    ctx.arc(px, py, PLAYER_RADIUS * side, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = "#e2b254";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(px, py, PLAYER_RADIUS * side + 3, 0, Math.PI * 2);
+    ctx.stroke();
   }
 
   // --- Equalisation: chunked across frames, see FRAME_BUDGET_MS above. ---
@@ -506,16 +583,19 @@ if (app) {
 
     timerEl.textContent = formatTime(state.elapsedMs);
     healthEl.textContent = `HP ${Math.ceil(state.playerHealth)}`;
+    enemyCountEl.textContent = `${state.enemies.length} alive`;
   }
 
   let lastFrameTime: number | undefined;
   function loop(now: number): void {
     if (lastFrameTime !== undefined) {
-      step(state, (now - lastFrameTime) / 1000, keyboardInput(), configs[activeIndex]);
+      const dt = (now - lastFrameTime) / 1000;
+      captureTracers(dt, now);
+      step(state, dt, keyboardInput(), configs[activeIndex]);
     }
     lastFrameTime = now;
     tickEqualisation();
-    render();
+    render(now);
     publishState();
     requestAnimationFrame(loop);
   }
