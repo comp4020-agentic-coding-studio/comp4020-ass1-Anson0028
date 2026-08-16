@@ -14,7 +14,7 @@ import {
   type DifficultyConfig,
   type Input,
 } from "./sim";
-import { measurePanels, type AxisBounds, type MeasureProgress } from "./equalise";
+import { measurePanels, FINAL_TRIALS, type AxisBounds, type MeasureProgress } from "./equalise";
 import type { Measurement } from "./sim";
 
 const PLAYER_RADIUS = 0.02; // fraction of the canvas's shorter side
@@ -417,7 +417,7 @@ if (app) {
   prompt.className = "equalise-prompt";
   prompt.dataset.testid = "equalise-prompt";
   prompt.textContent =
-    "Three steps of a difficulty ladder, stepped evenly on every dial. Play them, then measure how long a fixed reference player survives each — and see whether even steps in the numbers buy even steps in difficulty.";
+    `Three steps of a difficulty ladder, stepped evenly on every dial. Play them, then measure: each step is simulated ${FINAL_TRIALS} times over and the median survival is reported, because one run tells you almost nothing about a distribution. Then see whether even steps in the numbers buy even steps in difficulty.`;
   panel.append(prompt);
 
   const equaliseBtn = document.createElement("button");
@@ -633,10 +633,14 @@ if (app) {
   // prototype argues against. Trials that were cut off get reported even when
   // the median itself is sound, because "a fifth of the runs never resolved"
   // is something a designer needs to know about a configuration.
+  // Says the trial count on every reported line, not just once above the
+  // button: the difference between "I played it and it felt about right" and
+  // a measurement is the sample size, and that is the claim the whole page
+  // rests on.
   function describeMeasurement(m: Measurement): string {
     const value = m.censored ? `at least ${formatSeconds(m.medianMs)} — runs were cut off` : formatSeconds(m.medianMs);
     const cut = m.cappedTrials > 0 && !m.censored ? ` (${m.cappedTrials} of ${m.trials} runs hit the time limit)` : "";
-    return `median survival ${value}${cut}`;
+    return `median of ${m.trials} runs: ${value}${cut}`;
   }
 
   function reportLadder(results: Map<number, Measurement>): void {
