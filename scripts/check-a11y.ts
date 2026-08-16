@@ -118,7 +118,14 @@ async function checkContrast(page: Page, label: string): Promise<boolean> {
 async function checkFocusIndicators(page: Page, label: string): Promise<boolean> {
   const results = await page.evaluate(() => {
     const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
-    const els = Array.from(document.querySelectorAll<HTMLElement>(FOCUSABLE));
+    // An element with no box at all (display:none, or the `hidden` attribute)
+    // is not in the tab order or the accessibility tree, so it is not a
+    // control right now — the restart button only exists once a run has ended.
+    // Deliberately getClientRects(), not a visibility heuristic: the skip link
+    // is positioned off-screen and MUST stay measured, because it is genuinely
+    // focusable. Anything a visitor can reach still has to pass.
+    const laidOut = (el: HTMLElement) => el.getClientRects().length > 0;
+    const els = Array.from(document.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(laidOut);
 
     function snapshot(el: HTMLElement) {
       const s = getComputedStyle(el);
@@ -171,7 +178,14 @@ async function checkFocusIndicators(page: Page, label: string): Promise<boolean>
 async function checkTouchTargets(page: Page): Promise<boolean> {
   const results = await page.evaluate(() => {
     const TARGETS = 'a[href], button:not([disabled]), input[type="range"], input[type="radio"]';
-    const els = Array.from(document.querySelectorAll<HTMLElement>(TARGETS));
+    // An element with no box at all (display:none, or the `hidden` attribute)
+    // is not in the tab order or the accessibility tree, so it is not a
+    // control right now — the restart button only exists once a run has ended.
+    // Deliberately getClientRects(), not a visibility heuristic: the skip link
+    // is positioned off-screen and MUST stay measured, because it is genuinely
+    // focusable. Anything a visitor can reach still has to pass.
+    const laidOut = (el: HTMLElement) => el.getClientRects().length > 0;
+    const els = Array.from(document.querySelectorAll<HTMLElement>(TARGETS)).filter(laidOut);
     const MIN = 44;
     const failures: string[] = [];
     for (const el of els) {

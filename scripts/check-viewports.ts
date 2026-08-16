@@ -119,6 +119,31 @@ async function main(): Promise<void> {
             continue;
           }
 
+          // 1b. The opening overlay has to actually leave the screen when it
+          // is dismissed. Setting `hidden` did not: `#app section` (1,0,1)
+          // outranked `.intro[hidden]` (0,2,0), so the property read true
+          // while the computed display stayed `flex` and the overlay sat over
+          // everything. jsdom cannot catch that — it asserts the flag and runs
+          // no cascade — so the assertion belongs here, where there is a real
+          // one. Everything measured below is measured over the dismissed
+          // overlay, so this runs before any of it.
+          const overlay = await page.evaluate(() => {
+            const intro = document.querySelector<HTMLElement>('[data-testid="intro"]');
+            const start = document.querySelector<HTMLButtonElement>('[data-testid="start-button"]');
+            if (!intro || !start) return { ok: false, why: "no intro overlay or start control" };
+            start.click();
+            const display = getComputedStyle(intro).display;
+            return display === "none"
+              ? { ok: true, why: "" }
+              : { ok: false, why: `dismissed overlay still computes display: ${display} (hidden=${intro.hidden})` };
+          });
+          if (!overlay.ok) {
+            console.error(`✗ ${label}: ${overlay.why}`);
+            reportErrors();
+            failed = true;
+            continue;
+          }
+
           // 2. Errors during load are a failure on their own, mount or not —
           // an asset that 404s or a script that throws doesn't get to pass
           // just because the rest of the page happened to render.
