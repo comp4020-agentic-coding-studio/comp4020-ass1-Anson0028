@@ -89,11 +89,29 @@ running counts as not green, so ship with time for CI to finish.
   blocks any commit containing something shaped like an API key --- by the time
   CI sees a key it's already pushed, so the hook is the sensor that matters.
 
-Nothing here measures **accessibility** or **performance** --- wiring those
-sensors (`axe-core`, Lighthouse, or whatever you choose) is your work, and later
-in the course the spec will ask you to show how you tested both. When you do,
-read a green performance result honestly: it's a lab estimate from one run on a
-CI machine, not proof the site is fast for real users.
+Nothing here measures **performance** --- wiring that sensor (Lighthouse or
+whatever you choose) is still your work, and later in the course the spec will
+ask you to show how you tested it. When you do, read a green result honestly:
+it's a lab estimate from one run on a CI machine, not proof the site is fast
+for real users.
+
+**Accessibility** is now wired: `pnpm check:a11y` (`scripts/check-a11y.ts`)
+runs the same real-Chromium/Vite-preview setup as `check:viewports` against
+`dist/` and asserts four things at both marking viewports --- text contrast
+>= 4.5:1 (axe-core's `color-contrast` rule, walking real computed styles, not
+a colour read off a stylesheet in isolation), every focusable control changes
+computed style on focus (compares before/after `.focus()`, not just "outline
+isn't `none`" --- that alone would go green on `outline:none` paired with
+nothing to replace it), touch targets >= 44×44 CSS px at 390×844 (read from
+`getBoundingClientRect()`, since a native `<input type="range">` renders a hit
+area far smaller than its nominal size), and `prefers-reduced-motion` is
+respected by any transition that exists. That last one reports a distinct
+"nothing to check yet" rather than a bare pass when the stylesheet defines no
+transitions at all --- a check that can't fail is worth less than no check,
+and this repo already found four of those this week (see `PROCESS.md`); this
+one is written not to be a fifth. Deliberately outside `pnpm check`, same
+reason as `check:viewports`: a browser launch is slower than the rest of the
+roster.
 
 ## The stack is swappable
 
@@ -324,6 +342,19 @@ toolchain.
 `.npmrc` pins it (`use-node-version`), and that file is the authority for which
 Node pnpm runs. If a check fails with `ERR_UNKNOWN_FILE_EXTENSION`, check
 `pnpm exec node -v` against `mise current node` before touching the code.
+
+### The a11y baseline, measured before any CSS changed
+
+Ran `pnpm check:a11y` against the pre-visual-pass stylesheet to see what was
+already true rather than assume it. Contrast and focus indicators were
+already green (27 elements axe actually evaluated for contrast, 0
+incomplete; 14 of 14 focusable controls genuinely change style on focus,
+since nothing in the stylesheet sets `outline: none`) --- worth recording
+because a check that's green from the start and a check that's green because
+it measures nothing look identical unless you check which one happened.
+Touch targets were red on all 14 controls at 390×844: the nine range inputs
+rendered at `129×16px`, the three panel-select radios at `13×13px`, matching
+exactly the failure CLAUDE.md's own checklist named in advance.
 
 ### PROCESS.md and reflections use my facts, not a plausible reconstruction
 
