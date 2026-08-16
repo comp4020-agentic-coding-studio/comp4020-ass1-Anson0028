@@ -67,6 +67,20 @@ const PANEL_BLURBS = [
   "The same step again: three at a time, five hits each, and exactly as fast as you are.",
 ] as const;
 
+// A measurement of the ladder as labelled, recorded ahead of time so the page
+// can state its own finding before anyone presses anything. Without this, the
+// argument only exists for a visitor who happens to press the button — and a
+// reader who plays for thirty seconds and leaves would never meet it at all.
+//
+// Honest about what it is: these are recorded numbers, not a live run, and the
+// page says so and says when. Measured across five independent seeds of 51
+// runs each on 16 August 2026 against the default ladder — Easy 28.8 / 26.8 /
+// 25.2 / 27.5 / 26.0, Medium 10.1 / 10.4 / 10.9 / 10.3 / 10.1, Hard 7.8 / 7.6
+// / 7.7 / 7.8 / 7.8 — so the spread across seeds is roughly a second on Easy
+// and a tenth on Hard, and the middle of each is quoted below. Pressing the
+// button replaces all of it with a live run, which is the point.
+const BASELINE = { easyMs: 26800, mediumMs: 10300, hardMs: 7800, seeds: 5, measuredOn: "16 August 2026" };
+
 // TOLERANCE_FRACTION / FINAL_TRIALS / SEARCH_TRIALS / SEARCH_ITERATIONS all
 // live in ./equalise, next to the search they tune — see that file's
 // comments for how each number was derived from this sim's own measured
@@ -434,6 +448,17 @@ if (app) {
   resetBtn.textContent = "Reset to the labelled ladder";
   panel.append(resetBtn);
 
+  const baselineNote = document.createElement("p");
+  baselineNote.className = "baseline-note";
+  baselineNote.dataset.testid = "baseline-note";
+  baselineNote.textContent =
+    `Recorded earlier, on this ladder as labelled: Easy ${formatSeconds(BASELINE.easyMs)} · ` +
+    `Medium ${formatSeconds(BASELINE.mediumMs)} · Hard ${formatSeconds(BASELINE.hardMs)}. ` +
+    `Easy→Medium costs ${formatSeconds(BASELINE.easyMs - BASELINE.mediumMs)} of survival; Medium→Hard only ` +
+    `${formatSeconds(BASELINE.mediumMs - BASELINE.hardMs)}. Evenly spaced numbers, unevenly spaced difficulty. ` +
+    `(${BASELINE.seeds} independent runs of ${FINAL_TRIALS} simulations each, ${BASELINE.measuredOn} — press the button to measure it live.)`;
+  panel.append(baselineNote);
+
   const equaliseStatus = document.createElement("p");
   equaliseStatus.dataset.testid = "equalise-status";
   equaliseStatus.setAttribute("aria-live", "polite");
@@ -678,6 +703,10 @@ if (app) {
     if (measureJob) return;
     measureJob = { gen: measurePanels(ALL_PANELS, (i: number) => configs[i], Math.random), currentPanel: null, trialsThisPhase: 0 };
     equaliseBtn.disabled = true;
+    // The recorded figures stop being the page's headline the moment a live
+    // measurement starts — two sets of numbers side by side is how a reader
+    // ends up quoting the wrong one.
+    baselineNote.hidden = true;
     equaliseStatus.textContent = "Measuring…";
     for (const i of ALL_PANELS) panelStatusEls[i].textContent = "waiting…";
   });

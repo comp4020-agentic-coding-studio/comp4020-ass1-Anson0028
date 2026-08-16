@@ -489,3 +489,30 @@ describe("choosing a difficulty is a configuration action, not a play action", (
     expect(hint.hidden, "nothing invited the visitor to start the new run").toBe(false);
   });
 });
+
+describe("the finding is on the page before anyone presses anything", () => {
+  it("states a recorded measurement, and says that is what it is", async () => {
+    await mountGame();
+    tick();
+
+    const note = document.querySelector<HTMLElement>('[data-testid="baseline-note"]');
+    expect(note, "a visitor who never presses the button never meets the argument").toBeTruthy();
+    expect(note!.hidden).toBe(false);
+    // Not passed off as live: a recorded number presented as a fresh one is
+    // the same dishonesty as a censored median presented as a measurement.
+    expect(note!.textContent, "the recorded numbers don't say they were recorded").toMatch(/recorded/i);
+    expect(note!.textContent, "no sample size on the headline claim").toMatch(/51/);
+  });
+
+  it("hides the recorded numbers once a live measurement starts", async () => {
+    await mountGame();
+    tick();
+    document.querySelector<HTMLButtonElement>('[data-testid="equalise-button"]')!.click();
+    tick();
+
+    expect(
+      document.querySelector<HTMLElement>('[data-testid="baseline-note"]')!.hidden,
+      "recorded and live numbers were on screen at the same time",
+    ).toBe(true);
+  });
+});

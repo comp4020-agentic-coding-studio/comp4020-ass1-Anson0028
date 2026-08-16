@@ -525,3 +525,21 @@ canvas[data-testid="game-canvas"] {
   color: var(--accent);
   font-size: 1rem;
 }
+
+/* The finding, stated before anyone presses anything — a visitor who plays for
+   thirty seconds and leaves would otherwise never meet the argument. Hidden
+   the moment a live measurement starts, so the page never shows two sets of
+   numbers at once. */
+.baseline-note {
+  margin: 0.5rem 0 0;
+  padding: 0.6rem 0.7rem;
+  border-left: 2px solid var(--accent);
+  background: var(--surface);
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.baseline-note[hidden] {
+  display: none;
+}
