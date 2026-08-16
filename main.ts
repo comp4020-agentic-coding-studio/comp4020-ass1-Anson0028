@@ -14,7 +14,7 @@ import {
   type DifficultyConfig,
   type Input,
 } from "./sim";
-import { measurePanels, FINAL_TRIALS, type AxisBounds, type MeasureProgress } from "./equalise";
+import { measurePanels, FINAL_TRIALS, TOLERANCE_FRACTION, type AxisBounds, type MeasureProgress } from "./equalise";
 import type { Measurement } from "./sim";
 
 const PLAYER_RADIUS = 0.02; // fraction of the canvas's shorter side
@@ -79,6 +79,14 @@ const PANEL_BLURBS = [
 // / 7.7 / 7.8 / 7.8 — so the spread across seeds is roughly a second on Easy
 // and a tenth on Hard, and the middle of each is quoted below. Pressing the
 // button replaces all of it with a live run, which is the point.
+// Drawn from 9-14s because a coarse scan of 150 configurations found survival
+// times heavily concentrated there (55 of 124 uncapped configs land in 8-15s;
+// five in 15-25s; one in 25-40s). A target outside that band would be a task
+// the dials cannot complete — see CLAUDE.md.
+const CHALLENGE_MIN_MS = 9000;
+const CHALLENGE_MAX_MS = 14000;
+const CHALLENGE_PANEL = 1; // Medium: retuned in place, so there is no fourth set of dials
+
 const BASELINE = { easyMs: 26800, mediumMs: 10300, hardMs: 7800, seeds: 5, measuredOn: "16 August 2026" };
 
 // TOLERANCE_FRACTION / FINAL_TRIALS / SEARCH_TRIALS / SEARCH_ITERATIONS all
@@ -459,6 +467,52 @@ if (app) {
     `(${BASELINE.seeds} independent runs of ${FINAL_TRIALS} simulations each, ${BASELINE.measuredOn} — press the button to measure it live.)`;
   panel.append(baselineNote);
 
+  // Stage two lives in the arena column, under the canvas, where there was
+  // nothing but empty space at 1920x1080.
+  const challengeBtn = document.createElement("button");
+  challengeBtn.type = "button";
+  challengeBtn.className = "run-control challenge-button";
+  challengeBtn.dataset.testid = "challenge-button";
+  challengeBtn.textContent = "Now you try →";
+  challengeBtn.disabled = true;
+  challengeBtn.title = "Play a run first";
+  arena.append(challengeBtn);
+
+  const challenge = document.createElement("section");
+  challenge.className = "challenge";
+  challenge.dataset.testid = "challenge";
+  challenge.hidden = true;
+  challenge.setAttribute("aria-label", "Hit a target survival time");
+
+  const challengeIntro = document.createElement("p");
+  challengeIntro.className = "challenge-intro";
+  challengeIntro.textContent =
+    "Your turn. Move the three dials until a reference player survives this long, then test it. You can play your attempt first — the arena is still live.";
+
+  const challengeTarget = document.createElement("p");
+  challengeTarget.className = "challenge-target";
+  challengeTarget.dataset.testid = "challenge-target";
+
+  const testBtn = document.createElement("button");
+  testBtn.type = "button";
+  testBtn.className = "equalise-button";
+  testBtn.dataset.testid = "test-answer-button";
+  testBtn.textContent = "Test my answer";
+
+  const challengeVerdict = document.createElement("p");
+  challengeVerdict.className = "challenge-verdict";
+  challengeVerdict.dataset.testid = "challenge-verdict";
+  challengeVerdict.setAttribute("aria-live", "polite");
+
+  const backBtn = document.createElement("button");
+  backBtn.type = "button";
+  backBtn.className = "run-control";
+  backBtn.dataset.testid = "back-button";
+  backBtn.textContent = "← Back to the ladder";
+
+  challenge.append(challengeIntro, challengeTarget, testBtn, challengeVerdict, backBtn);
+  panel.append(challenge);
+
   const equaliseStatus = document.createElement("p");
   equaliseStatus.dataset.testid = "equalise-status";
   equaliseStatus.setAttribute("aria-live", "polite");
@@ -653,6 +707,86 @@ if (app) {
   let measureJob: MeasureJob | null = null;
   const ALL_PANELS = [0, 1, 2];
 
+  // --- Stage two ---------------------------------------------------------
+  let hasPlayed = false;
+  let targetMs = 0;
+  let attemptJob: { gen: Generator<MeasureProgress, Map<number, Measurement>, void>; trials: number } | null = null;
+
+  function unlockChallenge(): void {
+    if (hasPlayed) return;
+    hasPlayed = true;
+    challengeBtn.disabled = false;
+    challengeBtn.title = "";
+  }
+
+  // Ladder-stage furniture, hidden while stage two is up: the challenge is
+  // about one configuration, and three panels plus a baseline reading is the
+  // demonstration the visitor has just finished.
+  function setStage(stage: "explore" | "challenge"): void {
+    const inChallenge = stage === "challenge";
+    challenge.hidden = !inChallenge;
+    challengeBtn.hidden = inChallenge;
+    prompt.hidden = inChallenge;
+    equaliseBtn.hidden = inChallenge;
+    resetBtn.hidden = inChallenge;
+    baselineNote.hidden = inChallenge || baselineNote.dataset.spent === "true";
+    equaliseStatus.hidden = inChallenge;
+    ALL_PANELS.forEach((i) => {
+      configPanels.children[i].toggleAttribute("hidden", inChallenge && i !== CHALLENGE_PANEL);
+    });
+    if (inChallenge) {
+      targetMs = CHALLENGE_MIN_MS + Math.round((Math.random() * (CHALLENGE_MAX_MS - CHALLENGE_MIN_MS)) / 500) * 500;
+      challengeTarget.dataset.targetMs = String(targetMs);
+      challengeTarget.textContent = `Target: ${formatSeconds(targetMs)} of survival.`;
+      challengeVerdict.textContent = "";
+      delete challengeVerdict.dataset.hit;
+      setActivePanel(CHALLENGE_PANEL);
+      panelRadios[CHALLENGE_PANEL].checked = true;
+    }
+  }
+
+  challengeBtn.addEventListener("click", () => setStage("challenge"));
+  backBtn.addEventListener("click", () => setStage("explore"));
+
+  testBtn.addEventListener("click", () => {
+    if (attemptJob) return;
+    attemptJob = { gen: measurePanels([CHALLENGE_PANEL], (i: number) => configs[i], Math.random), trials: 0 };
+    testBtn.disabled = true;
+    challengeVerdict.textContent = "Measuring…";
+  });
+
+  function tickAttempt(): void {
+    if (!attemptJob) return;
+    const job = attemptJob;
+    const deadline = performance.now() + FRAME_BUDGET_MS;
+    while (performance.now() < deadline) {
+      const result = job.gen.next();
+      if (result.done) {
+        attemptJob = null;
+        testBtn.disabled = false;
+        const m = result.value.get(CHALLENGE_PANEL)!;
+        // Same 9% this repo already derived from its own sampling noise — a
+        // freshly invented threshold would be a number with no provenance
+        // sitting in judgement over someone's answer.
+        const hit = !m.censored && Math.abs(m.medianMs - targetMs) <= targetMs * TOLERANCE_FRACTION;
+        challengeVerdict.dataset.achievedMs = String(m.medianMs);
+        challengeVerdict.dataset.hit = String(hit);
+        const gap = m.medianMs - targetMs;
+        const direction = gap > 0 ? "too easy" : "too hard";
+        challengeVerdict.textContent = m.censored
+          ? `${describeMeasurement(m)} — nothing resolved inside the time limit, so there is no number to compare yet.`
+          : hit
+            ? `${describeMeasurement(m)} — inside the ${Math.round(TOLERANCE_FRACTION * 100)}% the measurement itself can resolve. You hit it.`
+            : `${describeMeasurement(m)} — ${formatSeconds(Math.abs(gap))} ${direction}, ${Math.round((Math.abs(gap) / targetMs) * 100)}% off.`;
+        return;
+      }
+      if (result.value.kind === "trial") {
+        job.trials++;
+        challengeVerdict.textContent = `Measuring… (${job.trials} runs)`;
+      }
+    }
+  }
+
   // A median that reached the headless cap is a floor, not a survival time, and
   // saying "300.0s" would be the exact species of unearned number this whole
   // prototype argues against. Trials that were cut off get reported even when
@@ -707,6 +841,7 @@ if (app) {
     // measurement starts — two sets of numbers side by side is how a reader
     // ends up quoting the wrong one.
     baselineNote.hidden = true;
+    baselineNote.dataset.spent = "true";
     equaliseStatus.textContent = "Measuring…";
     for (const i of ALL_PANELS) panelStatusEls[i].textContent = "waiting…";
   });
@@ -849,10 +984,12 @@ if (app) {
       step(state, dt, keyboardInput(), configs[activeIndex]);
       // The run just ended. Say so, and put a fresh one one control away —
       // the old behaviour was to freeze in place and explain nothing.
+      if (state.elapsedMs > 0) unlockChallenge();
       if (!state.running && runOver.hidden) showRunOver();
     }
     lastFrameTime = now;
     tickEqualisation();
+    tickAttempt();
     render(now);
     publishState();
     requestAnimationFrame(loop);

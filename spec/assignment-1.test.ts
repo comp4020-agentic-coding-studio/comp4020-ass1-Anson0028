@@ -516,3 +516,65 @@ describe("the finding is on the page before anyone presses anything", () => {
     ).toBe(true);
   });
 });
+
+// CLAUDE.md: stage two hands the problem over. Until it existed, a page titled
+// "You balance it then." never once asked anyone to balance anything.
+describe("stage two: hit a target survival time", () => {
+  function challengeBtn() {
+    return document.querySelector<HTMLButtonElement>('[data-testid="challenge-button"]')!;
+  }
+
+  it("stays locked until a run has actually been played", async () => {
+    document.body.innerHTML = FIXTURE;
+    vi.resetModules();
+    await import("../main");
+    expect(challengeBtn(), "no way into stage two").toBeTruthy();
+    expect(challengeBtn().disabled, "tuning was offered before anything had been played").toBe(true);
+
+    document.querySelector<HTMLButtonElement>('[data-testid="start-button"]')!.click();
+    tick();
+    tick();
+    expect(challengeBtn().disabled, "playing a run did not unlock stage two").toBe(false);
+  });
+
+  it("sets a target inside the range measured to be reachable", async () => {
+    await mountGame();
+    // Two frames: the first only establishes lastFrameTime, so no simulated
+    // time has passed yet and stage two is still locked.
+    tick();
+    tick();
+    challengeBtn().click();
+
+    const target = document.querySelector<HTMLElement>('[data-testid="challenge-target"]');
+    expect(target, "stage two set no target").toBeTruthy();
+    const ms = Number(target!.dataset.targetMs);
+    // 9-14s, from the scan recorded in CLAUDE.md. A target outside the
+    // reachable band would be a task the dials cannot complete.
+    expect(ms).toBeGreaterThanOrEqual(9000);
+    expect(ms).toBeLessThanOrEqual(14000);
+  });
+
+  it("judges an attempt against the tolerance the repo already derived", async () => {
+    await mountGame();
+    tick();
+    tick();
+    challengeBtn().click();
+    const target = Number(document.querySelector<HTMLElement>('[data-testid="challenge-target"]')!.dataset.targetMs);
+
+    document.querySelector<HTMLButtonElement>('[data-testid="test-answer-button"]')!.click();
+    // Waits for the verdict, not for any text: the label reads "Measuring…"
+    // from the first frame, so waiting on textContent exits immediately.
+    for (
+      let i = 0;
+      i < 4000 && !document.querySelector<HTMLElement>('[data-testid="challenge-verdict"]')!.dataset.hit;
+      i++
+    )
+      tick(20);
+
+    const verdict = document.querySelector<HTMLElement>('[data-testid="challenge-verdict"]')!;
+    expect(verdict.textContent!.length, "testing an answer said nothing").toBeGreaterThan(0);
+    const achieved = Number(verdict.dataset.achievedMs);
+    const within = Math.abs(achieved - target) <= target * 0.09;
+    expect(verdict.dataset.hit, "the verdict disagrees with the 9% tolerance it claims to use").toBe(String(within));
+  });
+});

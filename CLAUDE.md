@@ -348,6 +348,35 @@ A tuning tool the visitor cannot stop is not a tuning tool. Three rules:
 Pausing lives in `main.ts`, not `sim.ts`: the headless search must never
 observe it.
 
+### Stage two hands the problem over
+
+After the ladder has been measured, the page stops demonstrating and starts
+asking: here is a survival time, hit it. That is what the title has been
+promising all along, and until stage two existed the page never once asked the
+visitor to balance anything.
+
+Rules it runs by, all of them there to keep the challenge fair — a tool that
+sets an impossible task and then blames you for missing it is the thing this
+prototype is arguing against:
+
+- **The target is drawn from a range measured to be reachable.** A coarse scan
+  of 150 configurations across the dial space found 124 that resolve within
+  the headless cap, and their survival times are heavily concentrated: 55 land
+  between 8s and 15s, five between 15s and 25s, one between 25s and 40s.
+  Targets are drawn from 9–14s for that reason and no other. The concentration
+  is itself worth knowing — most of the dial space buys about the same
+  difficulty, and long survival lives in one narrow corner.
+- **You have to have played before you can tune.** The control is disabled
+  until a run has been played, because tuning numbers you have never felt is
+  the exact mistake the page is about.
+- **"Close enough" reuses `TOLERANCE_FRACTION`,** the 9% already derived from
+  this simulation's measured sampling noise. A second, freshly invented
+  threshold would be a number with no provenance sitting in judgement over the
+  visitor's answer.
+- **No new sliders.** Stage two retunes the Medium panel in place rather than
+  adding a fourth set of dials: two copies of the same state drift, and the
+  liveness check counts nine range inputs.
+
 ### This is an explainer, and it has a reading order
 
 The brief asks for an interactive explainer, so the page has four beats and
