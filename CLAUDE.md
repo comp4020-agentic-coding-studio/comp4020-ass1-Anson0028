@@ -290,6 +290,34 @@ window-level handler with no owner check moved the player while a slider was
 being adjusted, and the same handler without `preventDefault` scrolled the
 page 420px during a run.
 
+### This is an explainer, and it has a reading order
+
+The brief asks for an interactive explainer, so the page has four beats and
+they run in this order: the provocation and one plain sentence saying what
+this is; the arena and the three archetypes, with a line each saying what
+they feel like to play; the question the equalise button answers, immediately
+above it; then the result and its mechanism. A dashboard with no prose on it
+is not an explainer, however good the instrument underneath is.
+
+Two rules that fall out of that. The root URL always mounts the working app —
+never an intro screen you click past — because the tests and
+`check-viewports.ts`'s liveness assertion both read the app at the root, and
+because the deployed root is what gets marked and demoed. And the archetype
+names are defined on the page: "Swarm", "Tanks" and "Hunter" are trade jargon,
+and "these three feel nothing alike" is the premise the entire argument rests
+on. If that premise doesn't land, the payoff reads as "three slider sets are
+roughly similar, obviously".
+
+**Superseded:** an earlier rule required the equalise button to sit above the
+fold at 1920x1080. That was written when the page was a bare dashboard with no
+reading order, and it no longer holds: the button is beat three, so it is
+supposed to arrive after the visitor has played. Keeping it in the first
+screen now would mean shrinking the slider rows below their touch-target size
+to buy the space — passing a self-imposed rule by making the thing it measures
+smaller, which is the exact move this repo has refused four times. What
+replaces it: the arena and the first archetype must be visible without
+scrolling, and the page must stay inside about one and a half screens.
+
 ### Visual direction: a designer's tuning tool, not a game portal
 
 The visitor is sitting where the designer sits, not playing a game. That's
