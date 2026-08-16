@@ -276,17 +276,49 @@ if (app) {
 
   let state = createInitialState();
 
+  // WASD is an addition, never a replacement: the arrows are held in place by
+  // the brief's checkable line, the test derived from it, and CLAUDE.md's
+  // accessibility rule.
+  const MOVEMENT_KEYS: Readonly<Record<string, Input>> = {
+    ArrowLeft: { x: -1, y: 0 },
+    KeyA: { x: -1, y: 0 },
+    ArrowRight: { x: 1, y: 0 },
+    KeyD: { x: 1, y: 0 },
+    ArrowUp: { x: 0, y: -1 },
+    KeyW: { x: 0, y: -1 },
+    ArrowDown: { x: 0, y: 1 },
+    KeyS: { x: 0, y: 1 },
+  };
+
+  // CLAUDE.md: a key event is attributed to an owner before it is acted on.
+  // With focus inside a form control the key belongs to that control — the
+  // difficulty sliders have to stay arrow-adjustable, and the radios have to
+  // keep their native arrow-key group navigation — so the game neither
+  // consumes it nor preventDefaults it.
+  function ownedByAControl(target: EventTarget | null): boolean {
+    return target instanceof Element && target.closest("input, select, textarea, button, [contenteditable]") !== null;
+  }
+
   const pressed = new Set<string>();
-  window.addEventListener("keydown", (e) => pressed.add(e.code));
+  window.addEventListener("keydown", (e) => {
+    if (!(e.code in MOVEMENT_KEYS) || ownedByAControl(e.target)) return;
+    pressed.add(e.code);
+    // Without this the browser scrolls the page out from under the arena while
+    // the visitor is playing — measured at 420px in a real browser.
+    e.preventDefault();
+  });
   window.addEventListener("keyup", (e) => pressed.delete(e.code));
 
   function keyboardInput(): Input {
     let x = 0;
     let y = 0;
-    if (pressed.has("ArrowLeft")) x -= 1;
-    if (pressed.has("ArrowRight")) x += 1;
-    if (pressed.has("ArrowUp")) y -= 1;
-    if (pressed.has("ArrowDown")) y += 1;
+    for (const code of pressed) {
+      const delta = MOVEMENT_KEYS[code];
+      if (delta) {
+        x += delta.x;
+        y += delta.y;
+      }
+    }
     return { x, y };
   }
 

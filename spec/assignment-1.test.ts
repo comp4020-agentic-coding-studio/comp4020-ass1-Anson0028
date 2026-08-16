@@ -76,6 +76,61 @@ describe("core interaction is keyboard-only", () => {
     expect(Number(gameState().dataset.playerX)).toBeGreaterThan(before);
   });
 
+  // Found by playing the built site, not by any check in this repo: the arrows
+  // scrolled the page 420px mid-run, and with a slider focused they drove the
+  // player as well as the slider. See CLAUDE.md's owner-attribution rule — the
+  // two tests below are its two halves, and neither is sufficient alone.
+  it("stops the browser scrolling the page when it consumes an arrow key", async () => {
+    await mountGame();
+    tick();
+
+    const event = new KeyboardEvent("keydown", { code: "ArrowDown", cancelable: true });
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented, "arrow keydown was not preventDefault'd, so the page scrolls under the arena").toBe(
+      true,
+    );
+  });
+
+  it("leaves arrow keys to a focused slider instead of also driving the player", async () => {
+    await mountGame();
+    tick();
+    const dial = slider("speed");
+    dial.focus();
+    const before = Number(gameState().dataset.playerX);
+
+    const event = new KeyboardEvent("keydown", { code: "ArrowRight", cancelable: true, bubbles: true });
+    dial.dispatchEvent(event);
+    tick();
+
+    expect(Number(gameState().dataset.playerX), "the player moved while a slider was being adjusted").toBeCloseTo(
+      before,
+      5,
+    );
+    expect(event.defaultPrevented, "the slider's own arrow-key adjustment was swallowed by the game").toBe(false);
+  });
+
+  it("moves the player on WASD as well, in the same directions as the arrows", async () => {
+    for (const [wasd, arrow, axis, sign] of [
+      ["KeyD", "ArrowRight", "playerX", 1],
+      ["KeyA", "ArrowLeft", "playerX", -1],
+      ["KeyS", "ArrowDown", "playerY", 1],
+      ["KeyW", "ArrowUp", "playerY", -1],
+    ] as const) {
+      await mountGame();
+      tick();
+      const before = Number(gameState().dataset[axis]);
+
+      window.dispatchEvent(new KeyboardEvent("keydown", { code: wasd, cancelable: true }));
+      tick();
+      const after = Number(gameState().dataset[axis]);
+      window.dispatchEvent(new KeyboardEvent("keyup", { code: wasd }));
+
+      const moved = (after - before) * sign;
+      expect(moved, `${wasd} did not move the player the way ${arrow} does`).toBeGreaterThan(0);
+    }
+  });
+
   it("every difficulty slider is a native, enabled, tabbable control", async () => {
     await mountGame();
     // Three panels x three stats = nine sliders. Queried generically by
