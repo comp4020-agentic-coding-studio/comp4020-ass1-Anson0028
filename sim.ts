@@ -135,7 +135,10 @@ function moveEnemies(state: SimState, dt: number, config: Readonly<DifficultyCon
   }
 }
 
-function applyContactDamage(state: SimState, dt: number, config: Readonly<DifficultyConfig>): void {
+// No `config` parameter any more: contact costs one heart flat, so nothing
+// here reads the difficulty dials. It used to take damage-per-second from
+// them, which is what the three-hearts change removed.
+function applyContactDamage(state: SimState, dt: number): void {
   state.invulnerableFor = Math.max(0, state.invulnerableFor - dt);
   if (state.invulnerableFor > 0) return;
   for (const enemy of state.enemies) {
@@ -183,7 +186,7 @@ export function step(
   }
 
   moveEnemies(state, dt, config);
-  applyContactDamage(state, dt, config);
+  applyContactDamage(state, dt);
   runAutomaticAttack(state, dt);
 
   state.elapsedMs += dt * 1000;

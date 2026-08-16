@@ -6,7 +6,6 @@
 import {
   createInitialState,
   step,
-  ENEMY_PURSUIT_SPEED_RATING,
   PLAYER_ATTACK_INTERVAL,
   PLAYER_ATTACK_RANGE,
   PLAYER_MAX_HEARTS,
