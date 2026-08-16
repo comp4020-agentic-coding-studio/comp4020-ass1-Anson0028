@@ -290,6 +290,28 @@ window-level handler with no owner check moved the player while a slider was
 being adjusted, and the same handler without `preventDefault` scrolled the
 page 420px during a run.
 
+### The run has a lifecycle, and the visitor controls it
+
+A tuning tool the visitor cannot stop is not a tuning tool. Three rules:
+
+- **Pause.** Wanting to change a number halfway through a run is the whole
+  activity, not an edge case. There is an explicit pause control, and the run
+  is paused while the intro is up so nobody starts on drained health.
+- **Death is announced and recoverable.** `sim.ts` already stops the run at
+  zero health, but the page said nothing and offered no way back, so it just
+  froze. Ending a run has to be visible and a fresh run has to be one control
+  away.
+- **A displayed number must be one its own control can represent.** Equalising
+  wrote raw search output back into the configs — `59.9853515625` next to a
+  slider whose step is 5 — so the label, the slider position and the number the
+  simulation was actually using disagreed with each other. Values are quantised
+  to the control's step when applied, and the achieved time is re-measured
+  against the quantised configuration rather than the searched one, because the
+  quantised one is what the visitor is now playing.
+
+Pausing lives in `main.ts`, not `sim.ts`: the headless search must never
+observe it.
+
 ### This is an explainer, and it has a reading order
 
 The brief asks for an interactive explainer, so the page has four beats and
@@ -298,6 +320,16 @@ this is; the arena and the three archetypes, with a line each saying what
 they feel like to play; the question the equalise button answers, immediately
 above it; then the result and its mechanism. A dashboard with no prose on it
 is not an explainer, however good the instrument underneath is.
+
+Beat one is a full-height opening screen with its own start control, not a
+paragraph wedged above the tool: a lede in the corner of a dashboard doesn't
+get read, and the archetype names need room to be defined before anyone
+touches a dial. It is an **overlay over a fully laid-out tool**, never a
+separate page and never a tool that mounts only after a click — the geometry
+checks (`check-viewports.ts`'s canvas-buffer assertion, `check-a11y.ts`'s
+44x44 targets) measure real boxes, and elements hidden behind a click would
+measure zero and pass vacuously. Same reason the root URL always mounts the
+working app.
 
 Two rules that fall out of that. The root URL always mounts the working app —
 never an intro screen you click past — because the tests and
