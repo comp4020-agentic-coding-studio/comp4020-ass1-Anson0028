@@ -290,6 +290,33 @@ window-level handler with no owner check moved the player while a slider was
 being adjusted, and the same handler without `preventDefault` scrolled the
 page 420px during a run.
 
+### Health is three hearts, and damage buys hearts per hit
+
+The player has **three hearts**, not a hundred hit points, and contact costs
+whole hearts on impact rather than a trickle per second. A run ends when the
+third one goes.
+
+Two things follow, and both are load-bearing:
+
+- **`enemyDamage` still has to mean something.** If every contact cost exactly
+  one heart, Swarm's 10 and Tanks' 30 would be the same number and that dial
+  would be decorative — the failure this repo has now hit seven times. Damage
+  buys hearts per hit instead: `max(1, round(enemyDamage / 20))`, so 10 costs
+  one, 30 costs two, 50 is a one-shot kill. Tanks hitting hard survives the
+  change.
+- **Per-hit damage needs invulnerability frames.** Without them, standing in
+  contact for three consecutive frames removes three hearts in 50ms, which is
+  not a difficulty setting, it is a rounding error. Contact grants a short
+  window of immunity, and the window is a simulation constant.
+
+**This invalidated every equalise measurement**, exactly as changing
+`PLAYER_ATTACK_RANGE` or moving to travelling projectiles would have. That was
+worth paying here because the health model is the game rather than its
+rendering, but the debt is real and gets paid, not assumed away: the tolerance,
+the determinism of `equalise.test.ts`, and whether Tanks still fails to
+converge are all re-measured after the change, and whatever the new numbers say
+is what the page says.
+
 ### The run has a lifecycle, and the visitor controls it
 
 A tuning tool the visitor cannot stop is not a tuning tool. Three rules:
@@ -297,6 +324,15 @@ A tuning tool the visitor cannot stop is not a tuning tool. Three rules:
 - **Pause.** Wanting to change a number halfway through a run is the whole
   activity, not an edge case. There is an explicit pause control, and the run
   is paused while the intro is up so nobody starts on drained health.
+- **The arena holds the play.** The run advances only while the visitor's
+  attention is on the arena: pressing inside the canvas plays, pressing
+  anywhere else — a slider, the page, another window — pauses. That is what
+  makes "stop and change a number" the default rather than something you have
+  to remember to do, and it means the arrow keys never fight a control the
+  visitor is currently using. Controls that manage the run themselves (start,
+  pause, restart, reset) are exempt, or pressing Resume would pause on the
+  same click. A paused arena has to say how to resume; a frozen rectangle with
+  no explanation reads as a crash.
 - **Death is announced and recoverable.** `sim.ts` already stops the run at
   zero health, but the page said nothing and offered no way back, so it just
   froze. Ending a run has to be visible and a fresh run has to be one control
