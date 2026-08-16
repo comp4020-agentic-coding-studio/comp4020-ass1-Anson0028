@@ -6,23 +6,21 @@
 import {
   createInitialState,
   step,
-  ENEMY_CONTACT_RADIUS,
   ENEMY_PURSUIT_SPEED_RATING,
   PLAYER_ATTACK_INTERVAL,
   PLAYER_ATTACK_RANGE,
+  PLAYER_MAX_HEARTS,
   type DifficultyConfig,
   type Input,
 } from "./sim";
-import {
-  equaliseAllPanels,
-  isCorneringRegime,
-  type AxisBounds,
-  type MultiPanelProgress,
-  type EqualiseOutcome,
-} from "./equalise";
+import { measurePanels, type AxisBounds, type MeasureProgress } from "./equalise";
 
 const PLAYER_RADIUS = 0.02; // fraction of the canvas's shorter side
-const ENEMY_RADIUS = 0.018;
+// Smaller than the player's dot: a crowd of these has to read as a crowd
+// rather than as a wall of squares.
+const ENEMY_RADIUS = 0.011;
+// How small a nearly-dead enemy draws, as a fraction of ENEMY_RADIUS.
+const ENEMY_MIN_RADIUS_FRACTION = 0.45;
 
 // Slider bounds, shared with equalise.ts's search so a retuned config can
 // never land outside what the UI can even represent.
@@ -30,7 +28,8 @@ const SLIDER_STEP = 5;
 const BOUNDS: AxisBounds = {
   enemyHealth: { min: 10, max: 100, step: SLIDER_STEP },
   enemySpeed: { min: 0, max: 100, step: SLIDER_STEP },
-  enemyDamage: { min: 0, max: 50, step: SLIDER_STEP },
+  // One per tick to eight; whole enemies only, so this axis steps by 1.
+  enemySpawnCount: { min: 1, max: 8, step: 1 },
 };
 
 // Three deliberately different archetypes, not three copies of the same dial
@@ -46,16 +45,24 @@ const BOUNDS: AxisBounds = {
 // `{ ...DEFAULT_DIFFICULTY }` labelled "Balanced" — enemySpeed 15, which put
 // it on the SAME side of the threshold as tanks, so a first press could only
 // ever fail twice. This preset replaces it on purpose.
+// A designer's difficulty ladder, stepped the way difficulty ladders actually
+// get built: evenly, on every dial at once. Health 20/50/80, speed 40/55/70,
+// arrivals 1/2/3 — three tidy, equal increments. Whether that produces three
+// equal increments of DIFFICULTY is the question the measure button answers,
+// and the honest answer here is no (measured: ~25s, ~10.5s, ~7.8s — the
+// second step is under half the size of the first). The presets are not rigged
+// to make that point; they are what an even step looks like, and the point is
+// what came out of measuring them.
 const PANEL_PRESETS: readonly DifficultyConfig[] = [
-  { enemyHealth: 20, enemySpeed: 70, enemyDamage: 10 }, // swarm: weak, fast, hits soft
-  { enemyHealth: 90, enemySpeed: 10, enemyDamage: 30 }, // tanks: tough, slow, hits hard
-  { enemyHealth: 60, enemySpeed: 65, enemyDamage: 25 }, // hunter: tough AND fast, hits moderately hard
+  { enemyHealth: 15, enemySpeed: 30, enemySpawnCount: 1 },
+  { enemyHealth: 40, enemySpeed: 45, enemySpawnCount: 2 },
+  { enemyHealth: 65, enemySpeed: 60, enemySpawnCount: 3 },
 ];
-const PANEL_LABELS = ["Swarm", "Tanks", "Hunter"] as const;
+const PANEL_LABELS = ["Easy", "Medium", "Hard"] as const;
 const PANEL_BLURBS = [
-  "Dies to a single hit, but it is faster than you and they never stop arriving. Death by a hundred small ones.",
-  "Takes five hits to kill and moves six times slower than you, so you can walk away from it all day — but three seconds of contact takes a third of your health.",
-  "Faster than you, survives three hits, and hurts. The one that is actually dangerous.",
+  "Every dial at its low step: one enemy at a time, slower than you, dead in a single hit.",
+  "Each dial up one step — tougher, quicker, two at a time.",
+  "The same step again: three at a time, five hits each, and exactly as fast as you are.",
 ] as const;
 
 // TOLERANCE_FRACTION / FINAL_TRIALS / SEARCH_TRIALS / SEARCH_ITERATIONS all
@@ -106,6 +113,13 @@ const PANEL_BLURBS = [
 // bundling pipeline. Worth revisiting if a future week needs the fps back.
 const FRAME_BUDGET_MS = 8;
 
+// The HUD clock is m:ss, but a measurement readout at that resolution rounds a
+// 1.6-second gap to "0:01" and makes a real difference look like noise. Results
+// get their own format.
+function formatSeconds(ms: number): string {
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
 function formatTime(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
   const minutes = Math.floor(totalSeconds / 60);
@@ -134,10 +148,26 @@ if (app) {
   const introTitle = document.createElement("h2");
   introTitle.textContent = "You balance it then.";
 
+  // The title is a retort, and a retort needs the thing it is answering on
+  // screen or it reads as a slogan. One line, directly under it.
+  const introDek = document.createElement("p");
+  introDek.className = "intro-dek";
+  introDek.dataset.testid = "intro-dek";
+  introDek.textContent = "— what you end up wanting to say to everyone who blames the game's balance designer.";
+
+  // Where the idea came from, in the author's own words — before what the
+  // thing is. A visitor who doesn't know why it exists has no reason to care
+  // what it measures.
+  const introOrigin = document.createElement("p");
+  introOrigin.className = "intro-lede";
+  introOrigin.dataset.testid = "intro-origin";
+  introOrigin.textContent =
+    "Lose enough fights and the reflex is to blame whoever picked the numbers. But balancing those numbers against what different players each want out of a game is genuinely hard, and nothing on a designer's screen tells them whether they got it right. So here are the numbers, and a way to test them yourself.";
+
   const introLede = document.createElement("p");
   introLede.className = "intro-lede";
   introLede.textContent =
-    "Players call a game badly balanced as if the right numbers were obvious. Here are three sets of enemy numbers. They play nothing alike — survive one, then another, and then decide whether they could be made equally hard.";
+    "Easy, Medium, Hard. Three steps of a difficulty ladder, and every dial stepped evenly to build it — the way difficulty ladders actually get made. Play all three, then measure them, and see whether even steps in the numbers buy even steps in difficulty.";
 
   const introCards = document.createElement("ul");
   introCards.className = "intro-cards";
@@ -160,19 +190,36 @@ if (app) {
 
   const introHint = document.createElement("p");
   introHint.className = "intro-hint";
-  introHint.textContent = "Arrow keys or WASD to move. You attack automatically — anything inside your ring takes damage.";
+  introHint.textContent = "Arrow keys or WASD to move. You attack automatically — anything inside your ring takes damage. Three hearts; one touch costs one.";
 
   const introActions = document.createElement("div");
   introActions.className = "intro-actions";
   introActions.append(startBtn, introHint);
 
-  intro.append(introKicker, introTitle, introLede, introCards, introActions);
+  intro.append(introKicker, introTitle, introDek, introOrigin, introLede, introCards, introActions);
   app.append(intro);
+
+  // Canvas and its paused hint share one grid cell. They were two separate
+  // children of #app, so the hint appearing consumed a cell of its own and
+  // auto-placement pushed the whole right-hand column down a row every time
+  // the run paused.
+  const arena = document.createElement("div");
+  arena.className = "arena";
 
   const canvas = document.createElement("canvas");
   canvas.dataset.testid = "game-canvas";
   canvas.setAttribute("aria-hidden", "true");
-  app.append(canvas);
+  arena.append(canvas);
+  app.append(arena);
+
+  // A frozen rectangle with no explanation reads as a crash, and with
+  // press-to-play the arena spends a lot of its life frozen on purpose.
+  const pausedHint = document.createElement("p");
+  pausedHint.className = "paused-hint";
+  pausedHint.dataset.testid = "paused-hint";
+  pausedHint.textContent = "Paused — click the arena to play.";
+  pausedHint.hidden = true;
+  arena.append(pausedHint);
 
   const mirror = document.createElement("div");
   mirror.dataset.testid = "game-state";
@@ -240,7 +287,7 @@ if (app) {
   configPanels.className = "config-panels";
 
   function refreshSliderUI(panelIndex: number): void {
-    const keys: (keyof DifficultyConfig)[] = ["enemyHealth", "enemySpeed", "enemyDamage"];
+    const keys: (keyof DifficultyConfig)[] = ["enemyHealth", "enemySpeed", "enemySpawnCount"];
     keys.forEach((key, axisIndex) => {
       const value = configs[panelIndex][key];
       sliderInputs[panelIndex][axisIndex].value = String(value);
@@ -254,11 +301,12 @@ if (app) {
     // Comparing how a configuration feels is only honest from the same
     // starting point every time, so switching panels starts a fresh run
     // rather than swapping the config under a run already in progress.
-    // Switching archetypes starts a fresh run, so it has to clear a finished
-    // one's message too — otherwise "Tanks killed you at 0:42" sits over a
-    // Swarm run that just began. beginRun also resets lastFrameTime, without
-    // which loop()'s next dt is measured against the pre-switch timestamp.
-    beginRun();
+    // Switching steps starts a fresh run, so it has to clear a finished one's
+    // message too — otherwise "Hard killed you at 0:07" sits over an Easy run
+    // that just began. Paused, because choosing a difficulty is not the same
+    // as asking to play it. beginRun also resets lastFrameTime, without which
+    // loop()'s next dt is measured against the pre-switch timestamp.
+    beginRun({ startPaused: true });
     panelRadios.forEach((radio, i) => (radio.checked = i === activeIndex));
   }
 
@@ -278,7 +326,7 @@ if (app) {
     // three colours mean the same thing in every one of the nine sliders —
     // see CLAUDE.md's "three sliders get three distinguishable colours,
     // reused everywhere" rule.
-    row.dataset.stat = key === "enemyHealth" ? "health" : key === "enemySpeed" ? "speed" : "damage";
+    row.dataset.stat = key === "enemyHealth" ? "health" : key === "enemySpeed" ? "speed" : "spawn";
 
     const name = document.createElement("span");
     name.textContent = label;
@@ -312,7 +360,7 @@ if (app) {
   for (let p = 0; p < 3; p++) {
     addSlider(p, 0, "enemyHealth", `enemy-health-${p}`, "Enemy health", BOUNDS.enemyHealth.min, BOUNDS.enemyHealth.max, 5);
     addSlider(p, 1, "enemySpeed", `enemy-speed-${p}`, "Enemy speed", BOUNDS.enemySpeed.min, BOUNDS.enemySpeed.max, 5);
-    addSlider(p, 2, "enemyDamage", `enemy-damage-${p}`, "Enemy damage", BOUNDS.enemyDamage.min, BOUNDS.enemyDamage.max, 5);
+    addSlider(p, 2, "enemySpawnCount", `enemy-spawn-${p}`, "Arriving at once", BOUNDS.enemySpawnCount.min, BOUNDS.enemySpawnCount.max, 1);
 
     const configSection = document.createElement("fieldset");
     configSection.className = "config-panel";
@@ -367,15 +415,22 @@ if (app) {
   prompt.className = "equalise-prompt";
   prompt.dataset.testid = "equalise-prompt";
   prompt.textContent =
-    "Selected panel is the one you are playing. The other two get retuned until a fixed reference player survives them for as long as it survives yours.";
+    "Three steps of a difficulty ladder, stepped evenly on every dial. Play them, then measure how long a fixed reference player survives each — and see whether even steps in the numbers buy even steps in difficulty.";
   panel.append(prompt);
 
   const equaliseBtn = document.createElement("button");
   equaliseBtn.type = "button";
   equaliseBtn.className = "equalise-button";
   equaliseBtn.dataset.testid = "equalise-button";
-  equaliseBtn.textContent = "Make these equally hard";
+  equaliseBtn.textContent = "Measure these three";
   panel.append(equaliseBtn);
+
+  const resetBtn = document.createElement("button");
+  resetBtn.type = "button";
+  resetBtn.className = "run-control";
+  resetBtn.dataset.testid = "reset-button";
+  resetBtn.textContent = "Reset to the labelled ladder";
+  panel.append(resetBtn);
 
   const equaliseStatus = document.createElement("p");
   equaliseStatus.dataset.testid = "equalise-status";
@@ -386,7 +441,7 @@ if (app) {
   limitation.className = "equalise-limitation";
   limitation.dataset.testid = "equalise-limitation";
   limitation.textContent =
-    '"Equally hard" here means equally hard for one fixed scripted reference player (it flees the nearest enemy once it gets close, otherwise holds still) — not for a human. A real person plays differently, so a configuration equalised against this policy is not thereby equalised for a person.';
+    "These times are how long one fixed scripted reference player survives — it flees the nearest enemy once that enemy gets close, and otherwise holds still. It is not a human, and it is not you. A real person reads the whole arena and plays the gaps, so a ladder that measures evenly against this policy is not thereby even for a person, and one that measures unevenly may still feel fine. The measurement is a second opinion, not a verdict.";
   panel.append(limitation);
 
   app.append(panel);
@@ -531,11 +586,21 @@ if (app) {
     const config = configs[activeIndex];
     for (const enemy of state.enemies) {
       const life = Math.max(0, Math.min(1, enemy.health / Math.max(1, config.enemyHealth)));
-      const r = (ENEMY_CONTACT_RADIUS + (ENEMY_RADIUS - ENEMY_CONTACT_RADIUS) * life) * side;
+      // This interpolated between ENEMY_CONTACT_RADIUS (0.03) and
+      // ENEMY_RADIUS (0.018) while claiming to shrink a damaged enemy — but
+      // the contact radius is the LARGER of the two, so a nearly-dead enemy
+      // grew. Now it interpolates within the drawn radius, so damage reads as
+      // damage.
+      const r = ENEMY_RADIUS * (ENEMY_MIN_RADIUS_FRACTION + (1 - ENEMY_MIN_RADIUS_FRACTION) * life) * side;
       ctx.fillStyle = `rgb(158 158 165 / ${Math.round(45 + 55 * life)}%)`;
       ctx.fillRect(enemy.x * cssWidth - r, enemy.y * cssHeight - r, r * 2, r * 2);
     }
 
+    // Two seconds of immunity is long enough that, unmarked, a hit reads as
+    // not having registered at all. A slow pulse rather than a fast flash:
+    // this is feedback, not a strobe.
+    const immune = state.invulnerableFor > 0;
+    ctx.globalAlpha = immune ? 0.45 + 0.35 * Math.abs(Math.sin(now / 220)) : 1;
     ctx.fillStyle = "#f2f2f4";
     ctx.beginPath();
     ctx.arc(px, py, PLAYER_RADIUS * side, 0, Math.PI * 2);
@@ -545,134 +610,90 @@ if (app) {
     ctx.beginPath();
     ctx.arc(px, py, PLAYER_RADIUS * side + 3, 0, Math.PI * 2);
     ctx.stroke();
+    ctx.globalAlpha = 1;
   }
 
   // --- Equalisation: chunked across frames, see FRAME_BUDGET_MS above. ---
 
-  type EqualiseJob = {
-    gen: Generator<MultiPanelProgress, Map<number, EqualiseOutcome>, void>;
-    targetMs: number | null; // unknown until the "target" progress event arrives
-    currentPanel: number | null; // unknown until the first "panel-start" event
-    panelsStarted: number; // for "(N of total)" — incremented on "panel-start"
-    trialsThisPhase: number; // resets on "target"/"panel-start"/"step", for the visible trial counter
-    total: number;
+  // The panels are a labelled ladder now, not three shapes to equalise, so the
+  // button measures what the labels already claim instead of searching for a
+  // multiplier. See equalise.ts's measurePanels.
+  type MeasureJob = {
+    gen: Generator<MeasureProgress, Map<number, number>, void>;
+    currentPanel: number | null;
+    trialsThisPhase: number;
   };
-  let equaliseJob: EqualiseJob | null = null;
+  let measureJob: MeasureJob | null = null;
+  const ALL_PANELS = [0, 1, 2];
 
-  function describeOutcome(outcome: EqualiseOutcome): string {
-    if (outcome.status === "matched") return `matched at ${formatTime(outcome.achievedMs)}`;
-    // "budget" on a config whose enemies are already too slow to catch a
-    // fleeing player isn't a search that needs more steps — it's this
-    // archetype's difficulty being a fundamentally different, high-variance
-    // process (cornering by accumulation, not pursuit). Say that, not just
-    // that the search gave up — see ENEMY_PURSUIT_SPEED_RATING in sim.ts.
-    if (outcome.reason === "budget" && isCorneringRegime(outcome.config)) {
-      return (
-        `couldn't converge — this archetype's enemies (speed ${outcome.config.enemySpeed}) move slower than the ` +
-        `player (parity at ${ENEMY_PURSUIT_SPEED_RATING}) and can't catch one that's fleeing. It only kills by ` +
-        `cornering as enemies accumulate over a run, which varies far more than pursuit-regime configs do — a ` +
-        `single intensity knob can't reliably land it in this target's tolerance. Closest reached: ` +
-        `${formatTime(outcome.achievedMs)}.`
-      );
-    }
-    const reason =
-      outcome.reason === "floor"
-        ? "every slider is already at its easiest setting and it's still too hard to reach that target"
-        : outcome.reason === "ceiling"
-          ? "every slider is already at its hardest setting and it's still too easy to reach that target"
-          : "ran out of search steps before converging";
-    return `couldn't reach equal difficulty (${reason}) — closest reached: ${formatTime(outcome.achievedMs)}`;
-  }
-
-  function finishPanel(panelIndex: number, outcome: EqualiseOutcome): void {
-    configs[panelIndex] = outcome.config;
-    refreshSliderUI(panelIndex);
-    panelStatusEls[panelIndex].textContent = describeOutcome(outcome);
+  function reportLadder(results: Map<number, number>): void {
+    const ms = ALL_PANELS.map((i) => results.get(i) ?? 0);
+    ALL_PANELS.forEach((i) => {
+      panelStatusEls[i].textContent = `median survival ${formatSeconds(ms[i])}`;
+    });
+    // The claim under test is not "is Hard harder than Easy" — it plainly is.
+    // It's whether three evenly-stepped dial positions buy three evenly-sized
+    // steps of difficulty. Reported as the two gaps, because that is the thing
+    // the labels quietly promise and the thing nobody can read off a slider.
+    const firstGap = ms[0] - ms[1];
+    const secondGap = ms[1] - ms[2];
+    const ratio = secondGap === 0 ? Infinity : firstGap / secondGap;
+    const evenness =
+      !isFinite(ratio) || ratio > 1.35 || ratio < 0.74
+        ? `The steps are not the same size: Easy→Medium costs ${formatSeconds(Math.abs(firstGap))} of survival, ` +
+          `Medium→Hard only ${formatSeconds(Math.abs(secondGap))}. Evenly spaced numbers, unevenly spaced difficulty.`
+        : `The two steps came out within a third of each other this time — on these numbers the ladder is roughly even.`;
+    equaliseStatus.textContent =
+      `Easy ${formatSeconds(ms[0])} · Medium ${formatSeconds(ms[1])} · Hard ${formatSeconds(ms[2])}. ${evenness}`;
   }
 
   equaliseBtn.addEventListener("click", () => {
-    if (equaliseJob) return;
-    const otherPanels = [0, 1, 2].filter((i) => i !== activeIndex);
-    equaliseJob = {
-      gen: equaliseAllPanels(configs[activeIndex], (i) => configs[i], otherPanels, BOUNDS, Math.random),
-      targetMs: null,
-      currentPanel: null,
-      panelsStarted: 0,
-      trialsThisPhase: 0,
-      total: otherPanels.length,
-    };
+    if (measureJob) return;
+    measureJob = { gen: measurePanels(ALL_PANELS, (i: number) => configs[i], Math.random), currentPanel: null, trialsThisPhase: 0 };
     equaliseBtn.disabled = true;
-    // The target isn't known yet — it's itself a chunked measurement now (see
-    // FRAME_BUDGET_MS above), so this can't say a number until the first
-    // "target" progress event arrives.
-    equaliseStatus.textContent = `Measuring ${PANEL_LABELS[activeIndex]}'s reference difficulty…`;
-    for (const i of otherPanels) panelStatusEls[i].textContent = "waiting…";
+    equaliseStatus.textContent = "Measuring…";
+    for (const i of ALL_PANELS) panelStatusEls[i].textContent = "waiting…";
+  });
+
+  resetBtn.addEventListener("click", () => {
+    if (measureJob) return;
+    ALL_PANELS.forEach((i) => {
+      configs[i] = { ...PANEL_PRESETS[i] };
+      refreshSliderUI(i);
+      panelStatusEls[i].textContent = "";
+    });
+    equaliseStatus.textContent = "Back to the ladder as it was labelled.";
+    beginRun({ startPaused: true });
   });
 
   function tickEqualisation(): void {
-    if (!equaliseJob) return;
-    const job = equaliseJob;
+    if (!measureJob) return;
+    const job = measureJob;
     const deadline = performance.now() + FRAME_BUDGET_MS;
     while (performance.now() < deadline) {
       const result = job.gen.next();
       if (result.done) {
-        const outcomes = result.value;
-        equaliseJob = null;
+        measureJob = null;
         equaliseBtn.disabled = false;
-        const total = outcomes.size;
-        const matched = [...outcomes.values()].filter((o) => o.status === "matched").length;
-        const targetMs = job.targetMs ?? 0;
-        // Honest either way: don't say "Done" as if every panel succeeded
-        // when one didn't — the per-panel status (written live, below) says why.
-        equaliseStatus.textContent =
-          matched === total
-            ? `Done — matched ${PANEL_LABELS[activeIndex]}'s ${formatTime(targetMs)}.`
-            : `Done — ${matched} of ${total} matched ${PANEL_LABELS[activeIndex]}'s ${formatTime(targetMs)}; see below for the rest.`;
+        reportLadder(result.value);
         return;
       }
-
       const progress = result.value;
-      switch (progress.kind) {
-        case "trial":
-          // One simulated run just finished — a pacing pulse, not a result.
-          // Still has to visibly change the label every trial, or a slow
-          // phase (measuring the target, or a search step) reads as a hang
-          // even though it's clearly ticking underneath.
-          job.trialsThisPhase++;
-          if (job.currentPanel === null) {
-            equaliseStatus.textContent =
-              `Measuring ${PANEL_LABELS[activeIndex]}'s reference difficulty… (${job.trialsThisPhase} trials)`;
-          } else {
-            panelStatusEls[job.currentPanel].textContent = `equalising… (${job.trialsThisPhase} trials this step)`;
-          }
-          break;
-        case "target":
-          job.targetMs = progress.achievedMs;
-          job.trialsThisPhase = 0;
-          equaliseStatus.textContent = `Equalising to ${PANEL_LABELS[activeIndex]}'s ${formatTime(progress.achievedMs)}…`;
-          break;
-        case "panel-start":
-          job.currentPanel = progress.panel;
-          job.panelsStarted++;
-          job.trialsThisPhase = 0;
-          panelStatusEls[progress.panel].textContent = "equalising…";
-          break;
-        case "step":
-          job.trialsThisPhase = 0;
-          panelStatusEls[job.currentPanel!].textContent = `equalising… last try ${formatTime(progress.achievedMs)}`;
-          equaliseStatus.textContent =
-            `Equalising ${PANEL_LABELS[job.currentPanel!]} (${job.panelsStarted} of ${job.total}) to ` +
-            `${PANEL_LABELS[activeIndex]}'s ${formatTime(job.targetMs ?? 0)} — last try ${formatTime(progress.achievedMs)}…`;
-          break;
-        case "panel-done":
-          // Includes the FINAL_TRIALS re-verify (see equaliseAllPanels) — the
-          // number this reports already shares the reference target's
-          // precision, not the cheaper SEARCH_TRIALS estimate the search used.
-          finishPanel(progress.panel, progress.outcome);
-          break;
+      if (progress.kind === "panel-start") {
+        job.currentPanel = progress.panel;
+        job.trialsThisPhase = 0;
+        panelStatusEls[progress.panel].textContent = "measuring…";
+      } else if (progress.kind === "trial") {
+        // A pacing pulse, not a result. It still has to move every trial, or a
+        // multi-second measurement reads as a hang.
+        job.trialsThisPhase++;
+        if (job.currentPanel !== null) {
+          panelStatusEls[job.currentPanel].textContent = `measuring… (${job.trialsThisPhase} runs)`;
+        }
       }
     }
   }
+
 
   // The one place the mirror (and the HUD text) is written, from `state`
   // itself, once per frame — see CLAUDE.md's mirror-drift guard. Never set
@@ -681,15 +702,19 @@ if (app) {
     const config = configs[activeIndex];
     mirror.dataset.running = String(state.running);
     mirror.dataset.elapsedMs = String(Math.round(state.elapsedMs));
+    mirror.dataset.playerHearts = String(state.playerHearts);
     mirror.dataset.playerX = String(state.player.x);
     mirror.dataset.playerY = String(state.player.y);
     mirror.dataset.appliedHealth = String(config.enemyHealth);
     mirror.dataset.appliedSpeed = String(config.enemySpeed);
-    mirror.dataset.appliedDamage = String(config.enemyDamage);
+    mirror.dataset.appliedSpawnCount = String(config.enemySpawnCount);
     mirror.dataset.activeConfig = String(activeIndex);
 
     timerEl.textContent = formatTime(state.elapsedMs);
-    healthEl.textContent = `HP ${Math.ceil(state.playerHealth)}`;
+    // Hearts, not a number: three discrete lives read at a glance, and the
+    // spent ones stay on screen so the cost of the last contact is visible.
+    healthEl.textContent = "♥".repeat(state.playerHearts) + "♡".repeat(Math.max(0, PLAYER_MAX_HEARTS - state.playerHearts));
+    healthEl.setAttribute("aria-label", `${state.playerHearts} of ${PLAYER_MAX_HEARTS} hearts left`);
     enemyCountEl.textContent = `${state.enemies.length} alive`;
   }
 
@@ -701,6 +726,7 @@ if (app) {
     paused = next;
     pauseBtn.textContent = paused ? "Resume" : "Pause";
     pauseBtn.setAttribute("aria-pressed", String(paused));
+    pausedHint.hidden = !paused || !state.running || !intro.hidden;
     // loop()'s next dt is measured from lastFrameTime; leaving a stale one in
     // place would hand the first frame after a resume the entire pause as one
     // enormous step.
@@ -713,19 +739,47 @@ if (app) {
     runOver.textContent = `${PANEL_LABELS[activeIndex]} killed you at ${formatTime(state.elapsedMs)}. That number is what the equalise button matches against.`;
   }
 
-  function beginRun(): void {
+  // `startPaused` is the difference between a play action and a configuration
+  // one. Pressing Start or "Run it again" says "I am ready"; picking a
+  // different step of the ladder does not, and dropping someone straight into
+  // a live run because they clicked a radio button gives them no time to
+  // react. Consistent with CLAUDE.md's rule that the arena holds the play: a
+  // run the visitor didn't ask for waits for them to press the arena.
+  function beginRun({ startPaused = false } = {}): void {
     state = createInitialState();
     tracers = [];
     runOver.hidden = true;
     restartBtn.hidden = true;
-    setPaused(false);
+    setPaused(startPaused);
   }
 
   startBtn.addEventListener("click", () => {
     intro.hidden = true;
     beginRun();
   });
-  restartBtn.addEventListener("click", beginRun);
+
+  // CLAUDE.md: the arena holds the play. Pressing inside the canvas plays,
+  // pressing anywhere else pauses — so reaching for a slider stops the run
+  // without the visitor having to remember to, and the arrow keys never fight
+  // a control someone is currently using. mousedown rather than click,
+  // because a drag on a slider starts with a press and never produces a
+  // click on it.
+  const RUN_CONTROLS = '[data-testid="start-button"], [data-testid="pause-button"], [data-testid="restart-button"]';
+  canvas.addEventListener("mousedown", () => {
+    if (state.running && intro.hidden) setPaused(false);
+  });
+  document.addEventListener("mousedown", (e) => {
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+    // The run's own controls are exempt, or pressing Resume would pause again
+    // on the very same press and Resume could never work.
+    if (target === canvas || canvas.contains(target) || target.closest(RUN_CONTROLS)) return;
+    setPaused(true);
+  });
+  // Switching tab or window is attention leaving the arena too.
+  window.addEventListener("blur", () => setPaused(true));
+  // "Run it again" is an explicit ask to play, so it starts running.
+  restartBtn.addEventListener("click", () => beginRun());
   pauseBtn.addEventListener("click", () => {
     if (!state.running) return;
     setPaused(!paused);

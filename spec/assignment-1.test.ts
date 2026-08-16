@@ -36,11 +36,11 @@ function gameState(): HTMLElement {
   return el;
 }
 
-// Three panels each have their own health/speed/damage slider, namespaced
+// Three panels each have their own health/speed/spawn slider, namespaced
 // `enemy-${name}-${panel}` — panel 0 is active by default (see CLAUDE.md's
 // "Three configurations" section), so panel 0 is what any test not
 // specifically about panel-switching should read or drive.
-function slider(name: "health" | "speed" | "damage", panel = 0): HTMLInputElement {
+function slider(name: "health" | "speed" | "spawn", panel = 0): HTMLInputElement {
   const el = document.querySelector<HTMLInputElement>(`[data-testid="enemy-${name}-${panel}"]`);
   if (!el) throw new Error(`[data-testid="enemy-${name}-${panel}"] not found`);
   return el;
@@ -346,11 +346,11 @@ describe("the visitor controls the run", () => {
   it("says the run is over and offers a fresh one instead of freezing silently", async () => {
     await mountGame();
     tick();
-    // Damage is dealt per second of contact, so a maximal-damage config kills
-    // the reference dot quickly rather than after a five-minute wait.
-    const damage = slider("damage");
-    damage.value = damage.max;
-    damage.dispatchEvent(new Event("input", { bubbles: true }));
+    // Crowding the arena at the maximum spawn count ends the run quickly
+    // rather than after a five-minute wait.
+    const spawn = slider("spawn");
+    spawn.value = spawn.max;
+    spawn.dispatchEvent(new Event("input", { bubbles: true }));
     for (let i = 0; i < 400 && gameState().dataset.running === "true"; i++) tick(100);
 
     expect(gameState().dataset.running, "the run never ended").toBe("false");
@@ -366,5 +366,126 @@ describe("the visitor controls the run", () => {
     tick();
     expect(gameState().dataset.running, "restart did not start a fresh run").toBe("true");
     expect(Number(gameState().dataset.elapsedMs)).toBeLessThan(1000);
+  });
+});
+
+// Health is three hearts, not a hundred hit points — CLAUDE.md's health rule.
+describe("three hearts", () => {
+  it("starts a run with exactly three, shown as hearts rather than a number", async () => {
+    await mountGame();
+    tick();
+    expect(Number(gameState().dataset.playerHearts), "hearts are not published in the mirror").toBe(3);
+    const readout = document.querySelector('[data-testid="player-health"]');
+    expect(readout?.textContent ?? "", "the readout still shows a hit-point number").toMatch(/♥|❤/);
+  });
+
+  it("costs whole hearts on contact, and grants immunity so one touch isn't three", async () => {
+    await mountGame();
+    tick();
+    // The Easy preset as-is (one slow enemy at a time, median survival ~15s),
+    // so the window has to be long enough for a first contact to happen at
+    // all — the point here is that a sustained contact costs one heart per
+    // immunity window, not one per frame.
+    for (let i = 0; i < 3000 && Number(gameState().dataset.playerHearts) === 3; i++) tick(20);
+    const afterFirst = Number(gameState().dataset.playerHearts);
+
+    expect(afterFirst, "no heart was ever lost").toBeLessThan(3);
+    // Immediately after a hit the player is immune, so the very next frames
+    // must not take another one.
+    tick(20);
+    tick(20);
+    expect(Number(gameState().dataset.playerHearts), "immunity frames did nothing — contact drained hearts per frame").toBe(
+      afterFirst,
+    );
+  });
+
+  it("ends the run once all three are gone, at the highest arrival rate", async () => {
+    await mountGame();
+    tick();
+    const spawn = slider("spawn");
+    spawn.value = spawn.max;
+    spawn.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // Long enough for a crowd to close in even on the Easy step, whose
+    // enemies are slower than the player and can be outrun indefinitely
+    // one-on-one — being surrounded is what ends it, and that takes time.
+    for (let i = 0; i < 6000 && gameState().dataset.running === "true"; i++) tick(20);
+
+    expect(gameState().dataset.running, "the run never ended at the highest arrival rate").toBe("false");
+    expect(Number(gameState().dataset.playerHearts)).toBe(0);
+  });
+});
+
+// CLAUDE.md: the arena holds the play. Attention elsewhere means the run is
+// not advancing, which is what makes changing a number mid-run the default
+// rather than something the visitor has to remember to do.
+describe("the arena holds the play", () => {
+  function press(el: EventTarget) {
+    el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+  }
+
+  it("pauses when the visitor presses a slider, and resumes when they press the arena", async () => {
+    await mountGame();
+    tick();
+    tick();
+    const canvas = document.querySelector('[data-testid="game-canvas"]')!;
+
+    press(slider("speed"));
+    const frozen = Number(gameState().dataset.elapsedMs);
+    tick();
+    tick();
+    expect(Number(gameState().dataset.elapsedMs), "the run kept going while a slider was being used").toBe(frozen);
+
+    press(canvas);
+    tick();
+    tick();
+    expect(Number(gameState().dataset.elapsedMs), "pressing the arena did not resume the run").toBeGreaterThan(frozen);
+  });
+
+  it("says how to resume rather than just freezing", async () => {
+    await mountGame();
+    tick();
+    press(slider("speed"));
+    tick();
+
+    const hint = document.querySelector<HTMLElement>('[data-testid="paused-hint"]');
+    expect(hint, "nothing tells the visitor why the arena stopped").toBeTruthy();
+    expect(hint!.hidden, "the paused hint is hidden while paused").toBe(false);
+    expect(hint!.textContent?.length).toBeGreaterThan(0);
+  });
+
+  it("does not pause on the controls that manage the run themselves", async () => {
+    await mountGame();
+    tick();
+    const pause = document.querySelector<HTMLButtonElement>('[data-testid="pause-button"]')!;
+
+    // Pause, then Resume via the button: if the document-level handler didn't
+    // exempt it, the same click would pause again and Resume could never work.
+    pause.click();
+    press(pause);
+    pause.click();
+    const before = Number(gameState().dataset.elapsedMs);
+    tick();
+    tick();
+    expect(Number(gameState().dataset.elapsedMs), "Resume was undone by its own click").toBeGreaterThan(before);
+  });
+});
+
+describe("choosing a difficulty is a configuration action, not a play action", () => {
+  it("starts the new step paused, so the visitor is not dropped mid-run", async () => {
+    await mountGame();
+    tick();
+    tick();
+
+    const hard = document.querySelector<HTMLInputElement>('[data-testid="panel-select-2"]')!;
+    hard.checked = true;
+    hard.dispatchEvent(new Event("change", { bubbles: true }));
+    tick();
+    tick();
+
+    expect(gameState().dataset.activeConfig, "the panel did not become active").toBe("2");
+    expect(Number(gameState().dataset.elapsedMs), "switching difficulty threw the visitor straight into a run").toBe(0);
+    const hint = document.querySelector<HTMLElement>('[data-testid="paused-hint"]')!;
+    expect(hint.hidden, "nothing invited the visitor to start the new run").toBe(false);
   });
 });

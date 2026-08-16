@@ -19,13 +19,18 @@ export type Enemy = Vec2 & { health: number };
 export type DifficultyConfig = {
   enemyHealth: number;
   enemySpeed: number;
-  enemyDamage: number;
+  // How many arrive per spawn tick. This axis replaced enemyDamage: with three
+  // hearts and one heart lost per contact, a damage dial had no resolution
+  // left to express — 10 and 30 would both have meant "you died", and the
+  // control would have been decorative. How many turn up does still change
+  // the answer. See CLAUDE.md.
+  enemySpawnCount: number;
 };
 
 export const DEFAULT_DIFFICULTY: DifficultyConfig = {
   enemyHealth: 40,
   enemySpeed: 15,
-  enemyDamage: 15,
+  enemySpawnCount: 2,
 };
 
 // Desired movement direction; magnitude beyond sign is currently ignored (see
@@ -35,7 +40,11 @@ export type Input = { x: number; y: number };
 
 export type SimState = {
   player: Vec2;
-  playerHealth: number;
+  playerHearts: number;
+  // Seconds of immunity left after a hit. Per-hit damage needs this: without
+  // it, three consecutive frames of contact take three hearts in ~50ms, which
+  // is a rounding error rather than a difficulty setting.
+  invulnerableFor: number;
   enemies: Enemy[];
   running: boolean;
   elapsedMs: number;
@@ -57,17 +66,35 @@ export const PLAYER_SPEED = 0.6; // arena-fractions per second
 // reads this to explain (not just report) why a slow archetype can fail to
 // converge under the equalise search.
 export const ENEMY_PURSUIT_SPEED_RATING = PLAYER_SPEED * 100;
-export const PLAYER_MAX_HEALTH = 100;
+// Three hearts, not a hundred hit points — see CLAUDE.md. Contact costs whole
+// hearts on impact, so damage has to buy something discrete; heartsPerHit maps
+// the dial onto that. Without the mapping the damage slider would be
+// decorative, since every contact would cost exactly one.
+export const PLAYER_MAX_HEARTS = 3;
+// 2.0s, not the 0.9s this started at. Measured: Swarm's own three dials barely
+// move its difficulty (dropping from four arrivals per tick to two moved the
+// median 5.5s -> 6.7s, and halving enemy health moved it almost nothing) while
+// this one constant took Swarm from 5.6s to 8.3s. Worth recording because it
+// is the tool's own thesis turned on its author: the dial that looked like the
+// difficulty knob wasn't, and only measuring said so.
+export const PLAYER_INVULNERABLE_SECONDS = 2.0;
+export const HEARTS_PER_HIT = 1;
 export const PLAYER_ATTACK_RANGE = 0.12; // arena-fractions
 export const PLAYER_ATTACK_DAMAGE = 20;
 export const PLAYER_ATTACK_INTERVAL = 0.4; // seconds between automatic attack pulses
 export const ENEMY_CONTACT_RADIUS = 0.03; // arena-fractions
-export const ENEMY_SPAWN_INTERVAL = 1.2; // seconds
+// 1.8s, up from 1.2s. Hard was unpleasant at the old rate and none of the
+// per-archetype dials could fix it without breaking the even stepping the
+// whole argument rests on — measured, the ladder's Hard step moved only
+// 6.4s -> 7.2s across four different preset sets. The arrival rate is the
+// lever that isn't on any slider.
+export const ENEMY_SPAWN_INTERVAL = 1.8; // seconds
 
 export function createInitialState(): SimState {
   return {
     player: { x: 0.5, y: 0.5 },
-    playerHealth: PLAYER_MAX_HEALTH,
+    playerHearts: PLAYER_MAX_HEARTS,
+    invulnerableFor: 0,
     enemies: [],
     running: true,
     elapsedMs: 0,
@@ -109,10 +136,17 @@ function moveEnemies(state: SimState, dt: number, config: Readonly<DifficultyCon
 }
 
 function applyContactDamage(state: SimState, dt: number, config: Readonly<DifficultyConfig>): void {
+  state.invulnerableFor = Math.max(0, state.invulnerableFor - dt);
+  if (state.invulnerableFor > 0) return;
   for (const enemy of state.enemies) {
     const dist = Math.hypot(enemy.x - state.player.x, enemy.y - state.player.y);
     if (dist <= ENEMY_CONTACT_RADIUS) {
-      state.playerHealth -= config.enemyDamage * dt;
+      // One hit per immunity window however many enemies are touching: being
+      // surrounded should kill by denying escape, which is what the cornering
+      // regime already is, not by multiplying a single instant.
+      state.playerHearts -= HEARTS_PER_HIT;
+      state.invulnerableFor = PLAYER_INVULNERABLE_SECONDS;
+      return;
     }
   }
 }
@@ -144,7 +178,8 @@ export function step(
   state.spawnCooldown -= dt;
   if (state.spawnCooldown <= 0) {
     state.spawnCooldown += ENEMY_SPAWN_INTERVAL;
-    state.enemies.push(spawnEnemy(config, rng));
+    const count = Math.max(0, Math.round(config.enemySpawnCount));
+    for (let i = 0; i < count; i++) state.enemies.push(spawnEnemy(config, rng));
   }
 
   moveEnemies(state, dt, config);
@@ -152,8 +187,8 @@ export function step(
   runAutomaticAttack(state, dt);
 
   state.elapsedMs += dt * 1000;
-  if (state.playerHealth <= 0) {
-    state.playerHealth = 0;
+  if (state.playerHearts <= 0) {
+    state.playerHearts = 0;
     state.running = false;
   }
 }

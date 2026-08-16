@@ -103,7 +103,7 @@ export function withinTolerance(a: number, b: number, toleranceMs: number): bool
   return Math.abs(a - b) <= toleranceMs;
 }
 
-const AXES: (keyof DifficultyConfig)[] = ["enemyHealth", "enemySpeed", "enemyDamage"];
+const AXES: (keyof DifficultyConfig)[] = ["enemyHealth", "enemySpeed", "enemySpawnCount"];
 
 function scaledConfig(base: Readonly<DifficultyConfig>, bounds: AxisBounds, k: number): DifficultyConfig {
   const out = {} as DifficultyConfig;
@@ -225,4 +225,28 @@ export function* equaliseAllPanels(
     outcomes.set(panel, verified);
   }
   return outcomes;
+}
+
+// --- Measuring a labelled ladder ------------------------------------------
+
+// The panels stopped being three shapes to equalise and became three steps of
+// a difficulty ladder a designer has already labelled easy/medium/hard. The
+// question the UI asks changed with them — not "can these be made equal" but
+// "is the ladder you labelled actually a ladder, and are its steps the size
+// you think" — so this measures each panel as it stands and reports, rather
+// than searching for a multiplier. Same trial-by-trial yielding as everything
+// else here, so main.ts's frame budget can pace it (see FRAME_BUDGET_MS).
+export type MeasureProgress = EqualiseProgress | { kind: "panel-start"; panel: number };
+
+export function* measurePanels(
+  panels: readonly number[],
+  getPanelConfig: (panel: number) => Readonly<DifficultyConfig>,
+  rng: () => number,
+): Generator<MeasureProgress, Map<number, number>, void> {
+  const results = new Map<number, number>();
+  for (const panel of panels) {
+    yield { kind: "panel-start", panel };
+    results.set(panel, yield* measureSteps(getPanelConfig(panel), FINAL_TRIALS, rng));
+  }
+  return results;
 }

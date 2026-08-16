@@ -15,7 +15,7 @@
   --accent-ink: #241a05;
   --stat-health: #6fd0e0;
   --stat-speed: #8fd45e;
-  --stat-damage: #f08a72;
+  --stat-spawn: #f08a72;
 }
 
 * {
@@ -208,9 +208,9 @@ canvas[data-testid="game-canvas"] {
   color: var(--stat-speed);
 }
 
-.slider-row[data-stat="damage"] span:first-child,
-.slider-row[data-stat="damage"] .slider-value {
-  color: var(--stat-damage);
+.slider-row[data-stat="spawn"] span:first-child,
+.slider-row[data-stat="spawn"] .slider-value {
+  color: var(--stat-spawn);
 }
 
 /* Custom-rendered range input: the hit box is a flat 44px tall regardless of
@@ -483,4 +483,45 @@ canvas[data-testid="game-canvas"] {
 
 .run-over[hidden] {
   display: none;
+}
+
+/* The arena spends much of its life deliberately frozen (CLAUDE.md: pressing
+   outside it pauses), so the reason has to be on screen. Sits directly under
+   the canvas, in the accent colour the run controls already use. */
+.arena {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  position: relative;
+}
+
+/* Floated over the arena rather than stacked under it. Below the canvas it
+   still pushed everything after it down when it appeared — harmless on the
+   desktop two-column layout, 26px of jump on the single-column phone one.
+   Over the canvas it also lands where the instruction is about. Its own
+   background, not the canvas's, so contrast is a property of the CSS rather
+   than of whatever the game happens to have drawn underneath. */
+.paused-hint {
+  position: absolute;
+  left: 0.5rem;
+  bottom: 0.5rem;
+  margin: 0;
+  padding: 0.3rem 0.6rem;
+  border-radius: 0.3rem;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 0.85rem;
+}
+
+.paused-hint[hidden] {
+  display: none;
+}
+
+/* The title is a retort. This is the line it is answering, so it sits with the
+   title rather than in the body copy below. */
+.intro-dek {
+  max-width: 46ch;
+  margin: 0.1rem 0 0.35rem;
+  color: var(--accent);
+  font-size: 1rem;
 }
