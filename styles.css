@@ -539,11 +539,31 @@ canvas[data-testid="game-canvas"] {
 /* The arena spends much of its life deliberately frozen (CLAUDE.md: pressing
    outside it pauses), so the reason has to be on screen. Sits directly under
    the canvas, in the accent colour the run controls already use. */
+
+/* The arena stays put while the panel column scrolls past it. Stage two makes
+   the right column much taller than the canvas, and without this the left half
+   of a 1920px screen is empty for most of the scroll. `position: sticky` rather
+   than `fixed` so it still occupies its grid cell and the layout below it is
+   unaffected; it also keeps establishing the containing block the paused hint
+   is positioned against. Static on phone, where there is only one column and
+   pinning the canvas would eat most of the viewport. */
 .arena {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  position: relative;
+  position: sticky;
+  top: 0.75rem;
+  align-self: start;
+}
+
+/* Must come after the rule it overrides. Placed in the earlier phone block it
+   lost the cascade on equal specificity and the canvas stayed pinned at 390px
+   too — caught by measuring the canvas position after a 600px scroll, not by
+   reading the stylesheet. */
+@media (width <= 640px) {
+  .arena {
+    position: static;
+  }
 }
 
 /* Floated over the arena rather than stacked under it. Below the canvas it
