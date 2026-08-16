@@ -420,17 +420,33 @@ scrolling, and the page must stay inside about one and a half screens.
 The visitor is sitting where the designer sits, not playing a game. That's
 the argument, in visual form:
 
-- dark surface; canvas reads better dark and sells the tool framing
-- one accent colour, spent only on the "make these equally hard" button and
-  the readout it changes — everywhere else is greyscale, or the accent means
-  nothing
-- all numbers monospace, `font-variant-numeric: tabular-nums` — the survival
-  timer must not jitter as digit widths change
+The house style is an **instrument HUD**: near-black ground, a faint cyan
+measurement grid, monospace throughout, and engineering corner marks on the
+panels. That is not decoration — the whole argument is the difference between
+a number that was felt and a number that was measured, and a page that looks
+like an oscilloscope says so before a word is read. A page that looked like a
+game portal would be arguing against itself.
+
+- near-black surface with a low-contrast cyan grid; the canvas is the darkest
+  thing on the page
+- one accent colour (cyan) for measurement and controls, one warning colour
+  (red) for the things that hurt you — hearts, enemies, arrival rate. Two
+  colours with two fixed meanings, never spent decoratively
+- monospace for everything the *instrument* says — numbers, labels, legends,
+  buttons, readouts — with `font-variant-numeric: tabular-nums` so the
+  survival timer never jitters as digit widths change. Prose stays in a
+  humanist sans. Tried monospace for the prose too and measured the result:
+  the opening screen no longer fitted its own viewport, the title wrapped, and
+  a paragraph of explanation in a typewriter face is slower to read than the
+  same paragraph in a text face. The HUD is the frame, not the argument
+- the player renders as a reticle (crosshair plus ring), not a dot, and
+  enemies as wireframe diamonds that break to a dashed outline as they take
+  damage: the arena reads as a sensor display rather than a playfield
 - each slider shows its current value as a number beside it; the three
   sliders get three distinguishable colours, reused everywhere the three are
   compared, so the mapping is learned once
 - no easing on the slider-to-game response — the point is that it's immediate
-- the equalise button is the most prominent control on the page: it's the
+- the measure button is the most prominent control on the page: it's the
   thesis, not a feature
 - layout: canvas left / panel right on desktop, stacked with canvas on top
   and full-width sliders below on phone; the canvas resizes with the
