@@ -273,6 +273,23 @@ becomes the origin, dragging moves the player in that direction proportional
 to drag distance, releasing stops. Not absolute positioning — that would put
 the visitor's finger over the thing they're supposed to be watching.
 
+WASD is an alternative to the arrows, never a replacement for them. Three
+layers hold the arrows in place: the brief's own checkable line, the test
+`spec/assignment-1.test.ts` derives from it, and the accessibility rule above.
+A future week that finds arrow keys inconvenient should add another binding,
+not remove this one.
+
+**A key event has to be attributed to an owner before it is acted on.** When
+focus is inside a form control, the key belongs to that control: the game must
+not also consume it, and must not call `preventDefault`, because the brief
+requires the difficulty sliders to be adjustable by tab and arrow keys. When
+the game does consume a key, it must call `preventDefault`, or the browser
+scrolls the page out from under the arena while the visitor is playing. Both
+halves are one rule, and getting either half alone produces a bug: a
+window-level handler with no owner check moved the player while a slider was
+being adjusted, and the same handler without `preventDefault` scrolled the
+page 420px during a run.
+
 ### Visual direction: a designer's tuning tool, not a game portal
 
 The visitor is sitting where the designer sits, not playing a game. That's
