@@ -26,10 +26,11 @@ const ENEMY_RADIUS = 0.018;
 
 // Slider bounds, shared with equalise.ts's search so a retuned config can
 // never land outside what the UI can even represent.
+const SLIDER_STEP = 5;
 const BOUNDS: AxisBounds = {
-  enemyHealth: { min: 10, max: 100 },
-  enemySpeed: { min: 0, max: 100 },
-  enemyDamage: { min: 0, max: 50 },
+  enemyHealth: { min: 10, max: 100, step: SLIDER_STEP },
+  enemySpeed: { min: 0, max: 100, step: SLIDER_STEP },
+  enemyDamage: { min: 0, max: 50, step: SLIDER_STEP },
 };
 
 // Three deliberately different archetypes, not three copies of the same dial
@@ -115,6 +116,59 @@ function formatTime(ms: number): string {
 const app = document.querySelector<HTMLElement>("#app");
 
 if (app) {
+  // Beat one (CLAUDE.md): a full-height opening screen, built as an overlay
+  // over a tool that is already laid out underneath it. Not a separate page,
+  // and not a tool that mounts on click — check-viewports.ts measures the
+  // canvas's pixel buffer against its rendered box and check-a11y.ts measures
+  // 44x44 targets, and both would pass vacuously against elements that don't
+  // have boxes yet.
+  const intro = document.createElement("section");
+  intro.className = "intro";
+  intro.dataset.testid = "intro";
+  intro.setAttribute("aria-label", "Introduction");
+
+  const introKicker = document.createElement("p");
+  introKicker.className = "intro-kicker";
+  introKicker.textContent = "Interactive explainer";
+
+  const introTitle = document.createElement("h2");
+  introTitle.textContent = "You balance it then.";
+
+  const introLede = document.createElement("p");
+  introLede.className = "intro-lede";
+  introLede.textContent =
+    "Players call a game badly balanced as if the right numbers were obvious. Here are three sets of enemy numbers. They play nothing alike — survive one, then another, and then decide whether they could be made equally hard.";
+
+  const introCards = document.createElement("ul");
+  introCards.className = "intro-cards";
+  for (let i = 0; i < 3; i++) {
+    const card = document.createElement("li");
+    const name = document.createElement("b");
+    name.textContent = PANEL_LABELS[i];
+    const blurb = document.createElement("span");
+    blurb.className = "intro-card-note";
+    blurb.textContent = PANEL_BLURBS[i];
+    card.append(name, blurb);
+    introCards.append(card);
+  }
+
+  const startBtn = document.createElement("button");
+  startBtn.type = "button";
+  startBtn.className = "equalise-button start-button";
+  startBtn.dataset.testid = "start-button";
+  startBtn.textContent = "Start";
+
+  const introHint = document.createElement("p");
+  introHint.className = "intro-hint";
+  introHint.textContent = "Arrow keys or WASD to move. You attack automatically — anything inside your ring takes damage.";
+
+  const introActions = document.createElement("div");
+  introActions.className = "intro-actions";
+  introActions.append(startBtn, introHint);
+
+  intro.append(introKicker, introTitle, introLede, introCards, introActions);
+  app.append(intro);
+
   const canvas = document.createElement("canvas");
   canvas.dataset.testid = "game-canvas";
   canvas.setAttribute("aria-hidden", "true");
@@ -139,8 +193,33 @@ if (app) {
   const enemyCountEl = document.createElement("span");
   enemyCountEl.dataset.testid = "enemy-count";
   enemyCountEl.className = "tabular";
-  hud.append(timerEl, healthEl, enemyCountEl);
+
+  // Wanting to change a number halfway through a run is the activity this tool
+  // exists for, not an edge case — CLAUDE.md's run-lifecycle rule. Paused
+  // lives here and never reaches sim.ts, so the headless search can't see it.
+  const pauseBtn = document.createElement("button");
+  pauseBtn.type = "button";
+  pauseBtn.className = "run-control";
+  pauseBtn.dataset.testid = "pause-button";
+  pauseBtn.textContent = "Pause";
+
+  hud.append(timerEl, healthEl, enemyCountEl, pauseBtn);
   panel.append(hud);
+
+  // sim.ts stops the run at zero health, but the page said nothing and offered
+  // no way back, so it simply froze — the defect was silence, not a clock that
+  // failed to stop.
+  const runOver = document.createElement("p");
+  runOver.className = "run-over";
+  runOver.dataset.testid = "run-over";
+  runOver.hidden = true;
+  const restartBtn = document.createElement("button");
+  restartBtn.type = "button";
+  restartBtn.className = "run-control";
+  restartBtn.dataset.testid = "restart-button";
+  restartBtn.textContent = "Run it again";
+  panel.append(runOver, restartBtn);
+  restartBtn.hidden = true;
 
   // Three live config objects (mutable copies of the presets — equalising or
   // dragging a slider mutates these directly). sim's step() reads whichever
@@ -175,11 +254,11 @@ if (app) {
     // Comparing how a configuration feels is only honest from the same
     // starting point every time, so switching panels starts a fresh run
     // rather than swapping the config under a run already in progress.
-    state = createInitialState();
-    // Without this, loop()'s next dt is measured against the pre-switch
-    // timestamp — a stale reference that inflates the first frame after any
-    // switch, not just a test artifact.
-    lastFrameTime = undefined;
+    // Switching archetypes starts a fresh run, so it has to clear a finished
+    // one's message too — otherwise "Tanks killed you at 0:42" sits over a
+    // Swarm run that just began. beginRun also resets lastFrameTime, without
+    // which loop()'s next dt is measured against the pre-switch timestamp.
+    beginRun();
     panelRadios.forEach((radio, i) => (radio.checked = i === activeIndex));
   }
 
@@ -614,12 +693,53 @@ if (app) {
     enemyCountEl.textContent = `${state.enemies.length} alive`;
   }
 
+  // Paused until the visitor presses Start, so nobody arrives at the tool on
+  // health that drained while they were reading the opening screen.
+  let paused = true;
+
+  function setPaused(next: boolean): void {
+    paused = next;
+    pauseBtn.textContent = paused ? "Resume" : "Pause";
+    pauseBtn.setAttribute("aria-pressed", String(paused));
+    // loop()'s next dt is measured from lastFrameTime; leaving a stale one in
+    // place would hand the first frame after a resume the entire pause as one
+    // enormous step.
+    lastFrameTime = undefined;
+  }
+
+  function showRunOver(): void {
+    runOver.hidden = false;
+    restartBtn.hidden = false;
+    runOver.textContent = `${PANEL_LABELS[activeIndex]} killed you at ${formatTime(state.elapsedMs)}. That number is what the equalise button matches against.`;
+  }
+
+  function beginRun(): void {
+    state = createInitialState();
+    tracers = [];
+    runOver.hidden = true;
+    restartBtn.hidden = true;
+    setPaused(false);
+  }
+
+  startBtn.addEventListener("click", () => {
+    intro.hidden = true;
+    beginRun();
+  });
+  restartBtn.addEventListener("click", beginRun);
+  pauseBtn.addEventListener("click", () => {
+    if (!state.running) return;
+    setPaused(!paused);
+  });
+
   let lastFrameTime: number | undefined;
   function loop(now: number): void {
-    if (lastFrameTime !== undefined) {
+    if (lastFrameTime !== undefined && !paused) {
       const dt = (now - lastFrameTime) / 1000;
       captureTracers(dt, now);
       step(state, dt, keyboardInput(), configs[activeIndex]);
+      // The run just ended. Say so, and put a fresh one one control away —
+      // the old behaviour was to freeze in place and explain nothing.
+      if (!state.running && runOver.hidden) showRunOver();
     }
     lastFrameTime = now;
     tickEqualisation();

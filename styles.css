@@ -86,7 +86,8 @@ h1 {
    takes a grid track. */
 #app {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 26rem);
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 23rem);
+  position: relative;
   gap: 1.25rem;
   align-items: start;
 }
@@ -94,7 +95,13 @@ h1 {
 canvas[data-testid="game-canvas"] {
   display: block;
   width: 100%;
-  aspect-ratio: 4 / 3;
+
+  /* 16:10 rather than 4:3, and a wider share of the grid: the arena was the
+     smallest thing on a 1920px page, and the attack ring scales with
+     min(width, height), so a bigger arena is also a bigger, more readable
+     ring — without touching PLAYER_ATTACK_RANGE, which is a simulation
+     constant every equalise measurement was calibrated against. */
+  aspect-ratio: 16 / 10;
   max-height: calc(100vh - 8rem);
   background: #0a0a0b;
   border-radius: 0.25rem;
@@ -261,23 +268,6 @@ canvas[data-testid="game-canvas"] {
    archetype names the whole premise depends on, and the prompt poses the
    question the button answers. */
 
-/* Title and lede share one row on desktop rather than stacking, so the
-   explainer's opening costs one line of vertical space instead of four and
-   the arena still starts high on the page. Stacks on phone. */
-.masthead {
-  display: grid;
-  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
-  gap: 0.25rem 1.5rem;
-  align-items: baseline;
-}
-
-.lede {
-  max-width: 78ch;
-  margin: 0;
-  font-size: 0.95rem;
-  color: var(--text-dim);
-}
-
 .panel-blurb {
   margin: 0 0 0.25rem;
   font-size: 0.85rem;
@@ -347,10 +337,6 @@ canvas[data-testid="game-canvas"] {
     grid-template-columns: 1fr;
   }
 
-  .masthead {
-    grid-template-columns: 1fr;
-  }
-
   canvas[data-testid="game-canvas"] {
     max-height: 60vh;
   }
@@ -358,4 +344,143 @@ canvas[data-testid="game-canvas"] {
   .slider-row span:first-child {
     flex-basis: 5rem;
   }
+}
+
+/* Beat one (CLAUDE.md): a full-height opening screen laid over a tool that is
+   already mounted and measured underneath it. `position: fixed` rather than a
+   parent that hides its children, so the canvas keeps its real box and the
+   sliders keep their 44x44 — check-viewports.ts and check-a11y.ts both
+   measure geometry, and hidden elements would pass them against nothing. */
+.intro {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.75rem;
+  overflow-y: auto;
+  padding: 2rem clamp(1rem, 6vw, 5rem);
+  background: var(--bg);
+}
+
+/* `#app section` (1,0,1) outranks `.intro[hidden]` (0,2,0), so the plain
+   attribute rule lost the cascade and the dismissed overlay stayed on screen
+   at `display: flex` while its `hidden` property read true. The jsdom test
+   couldn't see it — it asserts the flag, and jsdom runs no cascade — so the
+   real-browser assertion in check-viewports.ts is the sensor for this. */
+#app section.intro[hidden] {
+  display: none;
+}
+
+.intro-kicker {
+  margin: 0;
+  color: var(--accent);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.intro h2 {
+  max-width: 18ch;
+  margin: 0;
+  font-size: clamp(2rem, 5.5vw, 4rem);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.intro-lede {
+  max-width: 58ch;
+  margin: 0;
+  color: var(--text-dim);
+}
+
+/* The three archetype names are trade jargon, and "these play nothing alike"
+   is the premise the whole argument rests on — so they get defined before the
+   visitor meets a dial, not in a caption beside one. */
+.intro-cards {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 62rem;
+  margin: 0.5rem 0;
+  padding: 0;
+  list-style: none;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+
+.intro-cards li {
+  padding: 0.85rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--surface);
+}
+
+.intro-cards b {
+  display: block;
+  margin-bottom: 0.2rem;
+  font-size: 0.9rem;
+}
+
+.intro-card-note {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.intro-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.start-button {
+  width: auto;
+  padding-inline: 2.5rem;
+}
+
+.intro-hint {
+  max-width: 42ch;
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
+/* Pause and restart. A tool the visitor can't stop isn't a tuning tool, and a
+   run that ends in silence reads as the page having broken. */
+.run-control {
+  min-height: 44px;
+  padding: 0 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.run-control:hover {
+  border-color: var(--accent);
+}
+
+.run-control[hidden] {
+  display: none;
+}
+
+.hud .run-control {
+  margin-inline-start: auto;
+}
+
+.run-over {
+  margin: 0.5rem 0 0.4rem;
+  color: var(--accent);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.run-over[hidden] {
+  display: none;
 }

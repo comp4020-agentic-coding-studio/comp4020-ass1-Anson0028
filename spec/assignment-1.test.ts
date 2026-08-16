@@ -46,10 +46,15 @@ function slider(name: "health" | "speed" | "damage", panel = 0): HTMLInputElemen
   return el;
 }
 
+// The opening screen is an overlay over an already-laid-out tool, so the app
+// is fully mounted before this is pressed — see CLAUDE.md. Dismissing it here
+// is setup, not an assertion: every test below is about the running tool, and
+// a visitor reaches it the same way.
 async function mountGame() {
   document.body.innerHTML = FIXTURE;
   vi.resetModules();
   await import("../main");
+  document.querySelector<HTMLButtonElement>('[data-testid="start-button"]')?.click();
 }
 
 function tick(ms = 20) {
@@ -284,5 +289,82 @@ describe("three configurations, only one live at a time", () => {
     // the state a real visitor sees the instant they click.
     expect(button.disabled).toBe(true);
     expect(status.textContent?.length).toBeGreaterThan(0);
+  });
+});
+
+// Three defects found by playing the built site, none of which any existing
+// check could see — see CLAUDE.md's run-lifecycle rule.
+describe("the visitor controls the run", () => {
+  it("lays the tool out underneath the opening screen rather than after it", async () => {
+    document.body.innerHTML = FIXTURE;
+    vi.resetModules();
+    await import("../main");
+
+    // Before any click: the geometry checks (canvas buffer, 44x44 targets)
+    // measure real boxes, so a tool that only mounts on Start would make them
+    // pass against nothing.
+    expect(document.querySelector('[data-testid="game-canvas"]'), "canvas is not mounted behind the intro").toBeTruthy();
+    expect(document.querySelectorAll('input[type="range"]').length, "sliders are not mounted behind the intro").toBe(9);
+    expect(document.querySelector('[data-testid="start-button"]'), "no start control").toBeTruthy();
+  });
+
+  it("holds the run until the visitor starts it, so nobody begins on drained health", async () => {
+    document.body.innerHTML = FIXTURE;
+    vi.resetModules();
+    await import("../main");
+    tick();
+    tick();
+
+    expect(Number(gameState().dataset.elapsedMs), "the run was already going behind the intro").toBe(0);
+
+    document.querySelector<HTMLButtonElement>('[data-testid="start-button"]')!.click();
+    tick();
+    tick();
+
+    expect(Number(gameState().dataset.elapsedMs), "Start did not begin the run").toBeGreaterThan(0);
+  });
+
+  it("pauses and resumes, because changing a number mid-run is the point", async () => {
+    await mountGame();
+    tick();
+    tick();
+    const pause = document.querySelector<HTMLButtonElement>('[data-testid="pause-button"]');
+    expect(pause, "no pause control").toBeTruthy();
+
+    pause!.click();
+    const frozen = Number(gameState().dataset.elapsedMs);
+    tick();
+    tick();
+    expect(Number(gameState().dataset.elapsedMs), "time kept running while paused").toBe(frozen);
+
+    pause!.click();
+    tick();
+    tick();
+    expect(Number(gameState().dataset.elapsedMs), "resuming did not restart the clock").toBeGreaterThan(frozen);
+  });
+
+  it("says the run is over and offers a fresh one instead of freezing silently", async () => {
+    await mountGame();
+    tick();
+    // Damage is dealt per second of contact, so a maximal-damage config kills
+    // the reference dot quickly rather than after a five-minute wait.
+    const damage = slider("damage");
+    damage.value = damage.max;
+    damage.dispatchEvent(new Event("input", { bubbles: true }));
+    for (let i = 0; i < 400 && gameState().dataset.running === "true"; i++) tick(100);
+
+    expect(gameState().dataset.running, "the run never ended").toBe("false");
+    const over = document.querySelector<HTMLElement>('[data-testid="run-over"]');
+    expect(over, "the page said nothing when the run ended").toBeTruthy();
+    expect(over!.hidden, "the run-over message exists but is hidden").toBe(false);
+    expect(over!.textContent?.length, "the run-over message is empty").toBeGreaterThan(0);
+
+    const restart = document.querySelector<HTMLButtonElement>('[data-testid="restart-button"]');
+    expect(restart, "no way to start a fresh run").toBeTruthy();
+    expect(restart!.hidden, "the restart control exists but is hidden").toBe(false);
+    restart!.click();
+    tick();
+    expect(gameState().dataset.running, "restart did not start a fresh run").toBe("true");
+    expect(Number(gameState().dataset.elapsedMs)).toBeLessThan(1000);
   });
 });
