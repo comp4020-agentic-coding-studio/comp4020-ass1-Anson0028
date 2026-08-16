@@ -153,6 +153,31 @@ async function main(): Promise<void> {
             failed = true;
           }
 
+          // 1c. Pausing must not move the layout. The paused hint used to be a
+          // grid child of #app in its own right, so the moment it appeared it
+          // consumed a cell and auto-placement pushed the entire right-hand
+          // column down a row — every time the run paused. jsdom has no layout
+          // engine and cannot see this class of bug at all; a real browser can.
+          const shift = await page.evaluate(() => {
+            const panel = document.querySelector<HTMLElement>('[data-testid="equalise-button"]')?.closest("section");
+            const slider = document.querySelector<HTMLElement>('input[type="range"]');
+            if (!panel || !slider) return { ok: false, why: "no difficulty panel or slider to measure" };
+            const before = panel.getBoundingClientRect().top;
+            // Pressing outside the arena pauses (CLAUDE.md), which is what
+            // reveals the hint.
+            slider.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+            const after = panel.getBoundingClientRect().top;
+            return Math.abs(after - before) < 1
+              ? { ok: true, why: "" }
+              : { ok: false, why: `pausing moved the difficulty panel ${(after - before).toFixed(1)}px` };
+          });
+          if (!shift.ok) {
+            console.error(`✗ ${label}: ${shift.why}`);
+            reportErrors();
+            failed = true;
+            continue;
+          }
+
           const { scrollWidth, clientWidth } = await page.evaluate(() => ({
             scrollWidth: document.documentElement.scrollWidth,
             clientWidth: document.documentElement.clientWidth,
