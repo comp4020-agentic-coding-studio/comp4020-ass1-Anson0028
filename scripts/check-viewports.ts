@@ -231,6 +231,38 @@ async function main(): Promise<void> {
             console.log(`✓ ${label}: a finger can move the player`);
           }
 
+          // 1e. Nothing may sit on top of a control. The paused hint is
+          // absolutely positioned, and when the stage-two button was later
+          // added to the same column the hint landed on top of it — visible in
+          // a screenshot, invisible to every check here, because overflow,
+          // contrast and target size were all still fine.
+          const overlap = await page.evaluate(() => {
+            const controls = Array.from(
+              document.querySelectorAll<HTMLElement>('button, input, a[href], [data-testid="paused-hint"]'),
+            ).filter((el) => el.getClientRects().length > 0);
+            const hits: string[] = [];
+            for (let i = 0; i < controls.length; i++) {
+              for (let j = i + 1; j < controls.length; j++) {
+                const a = controls[i].getBoundingClientRect();
+                const b = controls[j].getBoundingClientRect();
+                const dx = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+                const dy = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+                // A couple of pixels of touching is normal for adjacent boxes;
+                // a real overlap covers area.
+                if (dx > 2 && dy > 2) {
+                  const name = (el: HTMLElement) => el.dataset.testid ?? el.textContent?.trim().slice(0, 20) ?? el.tagName;
+                  hits.push(`${name(controls[i])} over ${name(controls[j])}`);
+                }
+              }
+            }
+            return hits;
+          });
+          if (overlap.length > 0) {
+            console.error(`✗ ${label}: controls overlap — ${overlap.slice(0, 3).join("; ")}`);
+            failed = true;
+            continue;
+          }
+
           const { scrollWidth, clientWidth } = await page.evaluate(() => ({
             scrollWidth: document.documentElement.scrollWidth,
             clientWidth: document.documentElement.clientWidth,

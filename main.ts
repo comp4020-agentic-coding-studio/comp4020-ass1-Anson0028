@@ -229,10 +229,18 @@ if (app) {
   const arena = document.createElement("div");
   arena.className = "arena";
 
+  // The canvas and its paused hint share their own box. The hint is absolutely
+  // positioned against it, and when the stage-two control was later appended to
+  // .arena, "the bottom of the arena" stopped meaning "the bottom of the
+  // canvas" — so the hint sat on top of that button.
+  const arenaCanvas = document.createElement("div");
+  arenaCanvas.className = "arena-canvas";
+
   const canvas = document.createElement("canvas");
   canvas.dataset.testid = "game-canvas";
   canvas.setAttribute("aria-hidden", "true");
-  arena.append(canvas);
+  arenaCanvas.append(canvas);
+  arena.append(arenaCanvas);
   app.append(arena);
 
   // A frozen rectangle with no explanation reads as a crash, and with
@@ -242,7 +250,7 @@ if (app) {
   pausedHint.dataset.testid = "paused-hint";
   pausedHint.textContent = "Paused — click the arena to play.";
   pausedHint.hidden = true;
-  arena.append(pausedHint);
+  arenaCanvas.append(pausedHint);
 
   const mirror = document.createElement("div");
   mirror.dataset.testid = "game-state";

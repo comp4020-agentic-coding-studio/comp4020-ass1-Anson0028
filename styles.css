@@ -559,6 +559,13 @@ canvas[data-testid="game-canvas"] {
   align-self: start;
 }
 
+/* The hint is positioned against this, not against .arena, which also holds
+   the stage-two control below the canvas. */
+.arena-canvas {
+  position: relative;
+  min-width: 0;
+}
+
 /* Must come after the rule it overrides. Placed in the earlier phone block it
    lost the cascade on equal specificity and the canvas stayed pinned at 390px
    too — caught by measuring the canvas position after a 600px scroll, not by
