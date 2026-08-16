@@ -25,9 +25,8 @@ about unearned numbers.
    app on it. The fix was a liveness assertion that fails when the app isn't
    mounted
    ([`d921132`](https://github.com/comp4020-agentic-coding-studio/comp4020-ass1-Anson0028/commit/d921132)).
-   Two more of the same shape followed: a `devicePixelRatio` term that could
-   only ever multiply by 1, hiding a canvas that really did render blurry on
-   the phone
+   Two more of the same shape: a `devicePixelRatio` term that could only ever
+   multiply by 1, hiding a canvas that did render blurry on the phone
    ([`8679b27`](https://github.com/comp4020-agentic-coding-studio/comp4020-ass1-Anson0028/commit/8679b27)),
    and `FRAME_BUDGET_MS = 8` gating nothing under a comment claiming full
    frame rate, while the real number was 4.2fps
@@ -42,9 +41,8 @@ about unearned numbers.
    See `reflections/assignment-1.md`.
 
 3. **The page was printing a number it hadn't earned.**
-   Dragging a dial produced a confident "300.0s", which is the headless time
-   cap, not a survival time. A run that reached it survived *at least* 300
-   seconds. Measurements now report whether they were cut off, and the summary
+   Dragging a dial produced a confident "300.0s" — the headless time cap, not a
+   survival time. A run that reached it survived *at least* 300 seconds. Measurements now report whether they were cut off, and the summary
    refuses to compare step sizes when any step is a floor
    ([`11eede0`](https://github.com/comp4020-agentic-coding-studio/comp4020-ass1-Anson0028/commit/11eede0)).
    Same rule applied twice more: the page now says how the numbers are made
@@ -70,7 +68,8 @@ about unearned numbers.
 `CLAUDE.md` is the harness: every rule was written before the code it governs,
 and two were amended after building them proved them wrong
 ([`adf01b0`](https://github.com/comp4020-agentic-coding-studio/comp4020-ass1-Anson0028/commit/adf01b0)).
-`scripts/check-viewports.ts` and `scripts/check-a11y.ts` are mine, not the
-template's — real-browser sensors for layout, playability, contrast, focus,
-touch targets and reduced motion, each run against a broken build before being
-trusted green.
+`scripts/check-viewports.ts`, `scripts/check-a11y.ts` and
+`scripts/check-payload.ts` are mine, not the template's — real-browser sensors
+for layout, playability, contrast, focus, touch targets and reduced motion,
+plus a payload budget stated as three seconds of a 400 kbit/s link. Each was
+run against a broken build before being trusted green.
