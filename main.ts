@@ -554,6 +554,55 @@ if (app) {
     return target instanceof Element && target.closest("input, select, textarea, button, [contenteditable]") !== null;
   }
 
+  // Relative touch-drag (CLAUDE.md): the first touch point becomes the origin
+  // and the drag from it is a direction. Relative rather than absolute
+  // positioning, so the visitor's finger never covers the thing they are
+  // supposed to be watching.
+  //
+  // Direction only, not magnitude. CLAUDE.md originally said "proportional to
+  // drag distance", but movePlayer normalises its input to a unit direction
+  // and moves at PLAYER_SPEED — magnitude is discarded in the simulation, and
+  // making it matter would change every survival time this repo has measured.
+  // The rule is amended there rather than half-honoured here.
+  type TouchPoint = { clientX: number; clientY: number };
+  type TouchLikeEvent = Event & { touches?: ArrayLike<TouchPoint> };
+  const TOUCH_DEAD_ZONE_PX = 8;
+  let touchOrigin: TouchPoint | null = null;
+  let touchInput: Input = { x: 0, y: 0 };
+
+  function firstTouch(e: TouchLikeEvent): TouchPoint | null {
+    const list = e.touches;
+    return list && list.length > 0 ? list[0] : null;
+  }
+
+  canvas.addEventListener("touchstart", (e: Event) => {
+    const point = firstTouch(e as TouchLikeEvent);
+    if (!point) return;
+    touchOrigin = { clientX: point.clientX, clientY: point.clientY };
+    touchInput = { x: 0, y: 0 };
+    // Without this the page scrolls under the arena on the first drag, the
+    // same defect the arrow keys had.
+    e.preventDefault();
+    if (state.running && intro.hidden) setPaused(false);
+  });
+
+  canvas.addEventListener("touchmove", (e: Event) => {
+    const point = firstTouch(e as TouchLikeEvent);
+    if (!point || !touchOrigin) return;
+    e.preventDefault();
+    const dx = point.clientX - touchOrigin.clientX;
+    const dy = point.clientY - touchOrigin.clientY;
+    // A dead zone, or resting a thumb steers the player.
+    touchInput = Math.hypot(dx, dy) < TOUCH_DEAD_ZONE_PX ? { x: 0, y: 0 } : { x: dx, y: dy };
+  });
+
+  function endTouch(): void {
+    touchOrigin = null;
+    touchInput = { x: 0, y: 0 };
+  }
+  canvas.addEventListener("touchend", endTouch);
+  canvas.addEventListener("touchcancel", endTouch);
+
   const pressed = new Set<string>();
   window.addEventListener("keydown", (e) => {
     if (!(e.code in MOVEMENT_KEYS) || ownedByAControl(e.target)) return;
@@ -565,8 +614,8 @@ if (app) {
   window.addEventListener("keyup", (e) => pressed.delete(e.code));
 
   function keyboardInput(): Input {
-    let x = 0;
-    let y = 0;
+    let x = touchInput.x;
+    let y = touchInput.y;
     for (const code of pressed) {
       const delta = MOVEMENT_KEYS[code];
       if (delta) {

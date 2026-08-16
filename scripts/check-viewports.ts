@@ -33,7 +33,10 @@ const DIST = resolve("dist");
 // check against, not the default.
 const VIEWPORTS = [
   { name: "desktop", width: 1920, height: 1080, deviceScaleFactor: 1 },
-  { name: "phone", width: 390, height: 844, deviceScaleFactor: 3 },
+  // hasTouch, because the phone viewport has no keyboard and the only way in
+  // is a finger. Without it, Playwright pages have no touchscreen and the
+  // question "can this be played here at all" cannot even be asked.
+  { name: "phone", width: 390, height: 844, deviceScaleFactor: 3, hasTouch: true },
 ];
 
 function htmlFiles(dir: string = DIST): string[] {
@@ -74,6 +77,7 @@ async function main(): Promise<void> {
         const page = await browser.newPage({
           viewport: { width: viewport.width, height: viewport.height },
           deviceScaleFactor: viewport.deviceScaleFactor,
+          hasTouch: viewport.hasTouch ?? false,
         });
 
         // Both kinds of error sat right in the console the whole time this
@@ -176,6 +180,49 @@ async function main(): Promise<void> {
             reportErrors();
             failed = true;
             continue;
+          }
+
+          // 1d. The phone viewport has to be playable by finger. CLAUDE.md
+          // described relative touch-drag from week one and it was never
+          // built: for the whole project the player could not move at all at
+          // 390x844, and no check noticed, because the input tests dispatch
+          // keyboard events and everything here measured layout.
+          if (viewport.hasTouch) {
+            const box = await page.locator('[data-testid="game-canvas"]').boundingBox();
+            const state = page.locator('[data-testid="game-state"]');
+            if (!box) {
+              console.error(`✗ ${label}: no canvas to touch`);
+              failed = true;
+              continue;
+            }
+            const cx = box.x + box.width / 2;
+            const cy = box.y + box.height / 2;
+            const before = Number(await state.getAttribute("data-player-x"));
+            await page.touchscreen.tap(cx, cy);
+            await page.waitForTimeout(60);
+            // A drag, not a tap: dispatched directly because Playwright's
+            // touchscreen has no move primitive.
+            await page.evaluate(
+              ([x, y]) => {
+                const canvas = document.querySelector('[data-testid="game-canvas"]')!;
+                const fire = (type: string, px: number) => {
+                  const touch = new Touch({ identifier: 1, target: canvas, clientX: px, clientY: y });
+                  canvas.dispatchEvent(new TouchEvent(type, { touches: [touch], cancelable: true, bubbles: true }));
+                };
+                fire("touchstart", x);
+                fire("touchmove", x + 70);
+              },
+              [cx, cy],
+            );
+            await page.waitForTimeout(400);
+            const after = Number(await state.getAttribute("data-player-x"));
+            if (!(after > before)) {
+              console.error(`✗ ${label}: dragging on the arena moved the player nowhere (${before} -> ${after})`);
+              reportErrors();
+              failed = true;
+              continue;
+            }
+            console.log(`✓ ${label}: a finger can move the player`);
           }
 
           const { scrollWidth, clientWidth } = await page.evaluate(() => ({

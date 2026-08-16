@@ -578,3 +578,82 @@ describe("stage two: hit a target survival time", () => {
     expect(verdict.dataset.hit, "the verdict disagrees with the 9% tolerance it claims to use").toBe(String(within));
   });
 });
+
+// CLAUDE.md has described relative touch-drag since week one. It had never
+// been built: there were no touch handlers at all, so at 390x844 — a viewport
+// that carries half the mark in full — the player could not move by any means.
+// No check saw it, because every input test in this file dispatches keyboard
+// events and every browser check measures layout.
+describe("the phone can play at all", () => {
+  function touch(el: EventTarget, type: string, x: number, y: number) {
+    const event = new Event(type, { bubbles: true, cancelable: true });
+    const list = type === "touchend" || type === "touchcancel" ? [] : [{ clientX: x, clientY: y }];
+    Object.defineProperty(event, "touches", { value: list });
+    Object.defineProperty(event, "changedTouches", { value: [{ clientX: x, clientY: y }] });
+    el.dispatchEvent(event);
+    return event;
+  }
+
+  it("moves the player by dragging on the arena, with no keyboard involved", async () => {
+    await mountGame();
+    tick();
+    tick();
+    const canvas = document.querySelector('[data-testid="game-canvas"]')!;
+    const before = Number(gameState().dataset.playerX);
+
+    touch(canvas, "touchstart", 100, 100);
+    touch(canvas, "touchmove", 160, 100);
+    tick();
+    tick();
+
+    expect(Number(gameState().dataset.playerX), "dragging right did not move the player right").toBeGreaterThan(before);
+  });
+
+  it("stops when the finger lifts", async () => {
+    await mountGame();
+    tick();
+    const canvas = document.querySelector('[data-testid="game-canvas"]')!;
+    touch(canvas, "touchstart", 100, 100);
+    touch(canvas, "touchmove", 160, 100);
+    tick();
+    touch(canvas, "touchend", 160, 100);
+    const settled = Number(gameState().dataset.playerX);
+    tick();
+    tick();
+
+    expect(Number(gameState().dataset.playerX), "the player kept drifting after the finger lifted").toBeCloseTo(
+      settled,
+      5,
+    );
+  });
+
+  it("ignores a drag too small to be a direction", async () => {
+    await mountGame();
+    tick();
+    const canvas = document.querySelector('[data-testid="game-canvas"]')!;
+    const before = Number(gameState().dataset.playerX);
+
+    touch(canvas, "touchstart", 100, 100);
+    touch(canvas, "touchmove", 102, 100);
+    tick();
+    tick();
+
+    expect(Number(gameState().dataset.playerX), "a two-pixel wobble steered the player").toBeCloseTo(before, 5);
+  });
+
+  it("takes the touch as playing, and stops the browser scrolling with it", async () => {
+    await mountGame();
+    tick();
+    document.querySelector<HTMLButtonElement>('[data-testid="pause-button"]')!.click();
+    const canvas = document.querySelector('[data-testid="game-canvas"]')!;
+
+    const start = touch(canvas, "touchstart", 100, 100);
+    expect(start.defaultPrevented, "touching the arena scrolls the page instead of playing").toBe(true);
+    tick();
+    tick();
+    const resumed = Number(gameState().dataset.elapsedMs);
+    tick();
+    tick();
+    expect(Number(gameState().dataset.elapsedMs), "touching the arena did not resume the run").toBeGreaterThan(resumed);
+  });
+});

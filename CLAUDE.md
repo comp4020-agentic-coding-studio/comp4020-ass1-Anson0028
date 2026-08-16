@@ -269,9 +269,24 @@ Arrow keys move the player — unconditionally, an accessibility requirement,
 not something to trade off for the touch implementation.
 
 The phone has no arrow keys, so touch drags the player: the first touch point
-becomes the origin, dragging moves the player in that direction proportional
-to drag distance, releasing stops. Not absolute positioning — that would put
-the visitor's finger over the thing they're supposed to be watching.
+becomes the origin, dragging from it gives a direction, releasing stops. Not
+absolute positioning — that would put the visitor's finger over the thing
+they're supposed to be watching. A dead zone of a few pixels, or a resting
+thumb steers.
+
+**Direction, not magnitude.** This rule used to say "proportional to drag
+distance". It can't be: `movePlayer` normalises its input to a unit direction
+and moves at `PLAYER_SPEED`, so magnitude is discarded inside the simulation,
+and making it matter would change every survival time this repo has measured.
+Amended rather than half-honoured in the implementation.
+
+This rule sat here unimplemented for the entire build. There were no touch
+handlers at all, which meant the game could not be played by any means at
+390x844 — a viewport that carries half the mark in full — and nothing caught
+it: every input test dispatched keyboard events, and every browser check
+measured layout. **A rule written in this file is not a rule until something
+fails when it is broken.** The phone-touch assertion in `check-viewports.ts`
+is that something.
 
 WASD is an alternative to the arrows, never a replacement for them. Three
 layers hold the arrows in place: the brief's own checkable line, the test
