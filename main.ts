@@ -10,10 +10,12 @@ import {
   PLAYER_ATTACK_INTERVAL,
   PLAYER_ATTACK_RANGE,
   PLAYER_MAX_HEARTS,
+  HEADLESS_MAX_MS,
   type DifficultyConfig,
   type Input,
 } from "./sim";
 import { measurePanels, type AxisBounds, type MeasureProgress } from "./equalise";
+import type { Measurement } from "./sim";
 
 const PLAYER_RADIUS = 0.02; // fraction of the canvas's shorter side
 // Smaller than the player's dot: a crowd of these has to read as a crowd
@@ -619,18 +621,39 @@ if (app) {
   // button measures what the labels already claim instead of searching for a
   // multiplier. See equalise.ts's measurePanels.
   type MeasureJob = {
-    gen: Generator<MeasureProgress, Map<number, number>, void>;
+    gen: Generator<MeasureProgress, Map<number, Measurement>, void>;
     currentPanel: number | null;
     trialsThisPhase: number;
   };
   let measureJob: MeasureJob | null = null;
   const ALL_PANELS = [0, 1, 2];
 
-  function reportLadder(results: Map<number, number>): void {
-    const ms = ALL_PANELS.map((i) => results.get(i) ?? 0);
+  // A median that reached the headless cap is a floor, not a survival time, and
+  // saying "300.0s" would be the exact species of unearned number this whole
+  // prototype argues against. Trials that were cut off get reported even when
+  // the median itself is sound, because "a fifth of the runs never resolved"
+  // is something a designer needs to know about a configuration.
+  function describeMeasurement(m: Measurement): string {
+    const value = m.censored ? `at least ${formatSeconds(m.medianMs)} — runs were cut off` : formatSeconds(m.medianMs);
+    const cut = m.cappedTrials > 0 && !m.censored ? ` (${m.cappedTrials} of ${m.trials} runs hit the time limit)` : "";
+    return `median survival ${value}${cut}`;
+  }
+
+  function reportLadder(results: Map<number, Measurement>): void {
+    const measured = ALL_PANELS.map((i) => results.get(i)!);
+    const ms = measured.map((m) => m.medianMs);
     ALL_PANELS.forEach((i) => {
-      panelStatusEls[i].textContent = `median survival ${formatSeconds(ms[i])}`;
+      panelStatusEls[i].textContent = describeMeasurement(measured[i]);
     });
+    if (measured.some((m) => m.censored)) {
+      // Comparing gaps between a real number and a floor would produce a gap
+      // that is itself only a floor, presented as if it were measured.
+      const shown = measured.map((m) => (m.censored ? `≥${formatSeconds(m.medianMs)}` : formatSeconds(m.medianMs)));
+      equaliseStatus.textContent =
+        `Easy ${shown[0]} · Medium ${shown[1]} · Hard ${shown[2]}. ` +
+        `At least one step ran past the ${formatSeconds(HEADLESS_MAX_MS)} limit without resolving, so its number is a floor rather than a measurement — the step sizes below it can't be compared honestly until it does.`;
+      return;
+    }
     // The claim under test is not "is Hard harder than Easy" — it plainly is.
     // It's whether three evenly-stepped dial positions buy three evenly-sized
     // steps of difficulty. Reported as the two gaps, because that is the thing

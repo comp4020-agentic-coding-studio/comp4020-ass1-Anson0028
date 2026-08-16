@@ -214,7 +214,10 @@ export function fleeNearestPolicy(state: SimState): Input {
 }
 
 const HEADLESS_DT = 1 / 60;
-const HEADLESS_MAX_MS = 5 * 60 * 1000; // cap so an unkillable config can't hang a search or test
+// Exported because a number produced under this cap has to be able to say so.
+// A trial that reached it didn't survive 300s; it survived AT LEAST 300s, and
+// the difference matters to anyone reading the result as a measurement.
+export const HEADLESS_MAX_MS = 5 * 60 * 1000; // cap so an unkillable config can't hang a search or test
 
 // Runs one simulation to its natural end (or the time cap) with no delay
 // between steps — this is the "faster than real time" headless run.
@@ -254,6 +257,39 @@ export function* medianSurvivalMsSteps(
     yield;
   }
   return medianOf(results);
+}
+
+// What a measurement actually knows about itself. `censored` is true only when
+// the median itself sits on the cap: below that the median is exact even with
+// some trials capped, because every capped trial's true value lies above the
+// observed one and therefore above the median. `cappedTrials` is reported
+// separately because "a fifth of the runs never resolved" tells a designer
+// something real about a configuration even when the median is sound.
+export type Measurement = {
+  medianMs: number;
+  trials: number;
+  cappedTrials: number;
+  censored: boolean;
+};
+
+export function* measurementSteps(
+  config: Readonly<DifficultyConfig>,
+  trials: number,
+  policy: Policy = fleeNearestPolicy,
+  rng: () => number = Math.random,
+): Generator<void, Measurement, void> {
+  const results: number[] = [];
+  for (let i = 0; i < trials; i++) {
+    results.push(runHeadless(config, policy, rng));
+    yield;
+  }
+  const medianMs = medianOf(results);
+  return {
+    medianMs,
+    trials,
+    cappedTrials: results.filter((ms) => ms >= HEADLESS_MAX_MS).length,
+    censored: medianMs >= HEADLESS_MAX_MS,
+  };
 }
 
 export function medianSurvivalMs(

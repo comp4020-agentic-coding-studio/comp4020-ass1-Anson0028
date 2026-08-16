@@ -8,7 +8,14 @@
 // "Three configurations" section for why equalisePanel scales one multiplier
 // across a panel's whole shape instead of independently retuning three knobs
 // against one target (underdetermined).
-import { ENEMY_PURSUIT_SPEED_RATING, fleeNearestPolicy, medianSurvivalMsSteps, type DifficultyConfig } from "./sim";
+import {
+  ENEMY_PURSUIT_SPEED_RATING,
+  fleeNearestPolicy,
+  measurementSteps,
+  medianSurvivalMsSteps,
+  type DifficultyConfig,
+  type Measurement,
+} from "./sim";
 
 // `step` is the resolution of the control that displays this axis. The search
 // only ever proposes configurations that control can represent — see
@@ -242,11 +249,20 @@ export function* measurePanels(
   panels: readonly number[],
   getPanelConfig: (panel: number) => Readonly<DifficultyConfig>,
   rng: () => number,
-): Generator<MeasureProgress, Map<number, number>, void> {
-  const results = new Map<number, number>();
+): Generator<MeasureProgress, Map<number, Measurement>, void> {
+  const results = new Map<number, Measurement>();
   for (const panel of panels) {
     yield { kind: "panel-start", panel };
-    results.set(panel, yield* measureSteps(getPanelConfig(panel), FINAL_TRIALS, rng));
+    // measurementSteps rather than measureSteps: the UI reports these numbers
+    // to a reader, so it needs to know whether each one is a measurement or a
+    // floor. The search doesn't — it only ever compares against a target.
+    const gen = measurementSteps(getPanelConfig(panel), FINAL_TRIALS, fleeNearestPolicy, rng);
+    let step = gen.next();
+    while (!step.done) {
+      yield { kind: "trial" };
+      step = gen.next();
+    }
+    results.set(panel, step.value);
   }
   return results;
 }
